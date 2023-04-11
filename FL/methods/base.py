@@ -5,7 +5,7 @@ from torch.multiprocessing import current_process
 import numpy as np
 import os
 from sklearn.metrics import roc_auc_score,  roc_curve
-
+from datetime import datetime
 
 class Base_Client():
     def __init__(self, client_dict, args):
@@ -21,12 +21,16 @@ class Base_Client():
         self.train_dataloader = None
         self.test_dataloader = None
         self.client_index = None
+        now = datetime.now()
+
+        self.result_dir = "C:/Users/hb/Desktop/code/Influencer_learning/FL/Results/{}_{}_{}({}_{})".format(now.date(), str(now.hour) + "H", str(now.minute) + "M", str(self.args.comm_round) + "I", str(self.args.epochs) + "L")
+        os.mkdir(self.result_dir)
     
     def load_client_state_dict(self, server_state_dict):
         # If you want to customize how to state dict is loaded you can do so here
         self.model.load_state_dict(server_state_dict)
     
-    def run(self, received_info): # thread의 갯수 만큼 실행됨
+    def run(self, received_info, com_round): # thread의 갯수 만큼 실행됨
         # recieved info : a server model weights(OrderedDict)
         # one globally merged model's parameter
         client_results = []
@@ -34,13 +38,14 @@ class Base_Client():
             # 한 tread에 할당된 client의 index가 매 round마다 들어있음.
             self.load_client_state_dict(received_info) 
             self.train_dataloader = self.train_data[client_idx] # among dataloader, pick one
-            self.test_dataloader = self.test_data[client_idx]
+            # 이 때 self.train_dataloader의 형태는 1차원 배열이어야 한다.
+            self.test_dataloader = self.test_data
             if self.args.client_sample < 1.0 and self.train_dataloader._iterator is not None and self.train_dataloader._iterator._shutdown:
                 self.train_dataloader._iterator = self.train_dataloader._get_iterator()
             self.client_index = client_idx
             num_samples = len(self.train_dataloader)*self.args.batch_size
-            weights = self.train()
-            acc = self.test()
+            weights = self.train(client_idx, com_round)
+            acc = self.test(client_idx)
             client_results.append({'weights':weights, 'num_samples':num_samples,'acc':acc, 'client_index':self.client_index})
             if self.args.client_sample < 1.0 and self.train_dataloader._iterator is not None:
                 self.train_dataloader._iterator._shutdown_workers()
@@ -49,29 +54,49 @@ class Base_Client():
         return client_results # clients' number of weights 
         # 하나의 thread에 할당된 client의 갯수 만큼의 client_result가 반환됨
         
-    def train(self):
+    def train(self, client_idx, com_round):
         # train the local model
         self.model.to(self.device)
         self.model.train()
         epoch_loss = []
+        if self.args.DD == True :  
+            logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.train_dataloader[com_round]) * 32))
         for epoch in range(self.args.epochs):
             batch_loss = []
-            for batch_idx, (images, labels) in enumerate(self.train_dataloader):
-                # logging.info(images.shape)
-                images, labels = images.to(self.device), labels.to(self.device)
-                self.optimizer.zero_grad()
+            if self.args.DD == False :
+                for batch_idx, (images, labels) in enumerate(self.train_dataloader):
+                    # logging.info(images.shape)
+                    images, labels = images.to(self.device), labels.to(self.device)
+                    self.optimizer.zero_grad()
 
-                if 'NIH' in self.dir or 'CheXpert' in self.dir:
-                    out = self.model(images)  
-                    loss = self.criterion(out, labels.type(torch.FloatTensor).to(self.device))
-                else:
-                    log_probs = self.model(images)
-                    loss = self.criterion(log_probs, labels.type(torch.LongTensor).to(self.device))
-                
-                
-                loss.backward()
-                self.optimizer.step()
-                batch_loss.append(loss.item())
+                    if 'NIH' in self.dir or 'CheXpert' in self.dir:
+                        out = self.model(images)  
+                        loss = self.criterion(out, labels.type(torch.FloatTensor).to(self.device))
+                    else:
+                        log_probs = self.model(images)
+                        loss = self.criterion(log_probs, labels.type(torch.LongTensor).to(self.device))
+                    
+                    loss.backward()
+                    self.optimizer.step()
+                    batch_loss.append(loss.item())
+
+            elif self.args.DD == True :  
+                for batch_idx, (images, labels) in enumerate(self.train_dataloader[com_round]):
+                    # logging.info(images.shape)
+                    images, labels = images.to(self.device), labels.to(self.device)
+                    self.optimizer.zero_grad()
+
+                    if 'NIH' in self.dir or 'CheXpert' in self.dir:
+                        out = self.model(images)  
+                        loss = self.criterion(out, labels.type(torch.FloatTensor).to(self.device))
+                    else:
+                        log_probs = self.model(images)
+                        loss = self.criterion(log_probs, labels.type(torch.LongTensor).to(self.device))
+                    
+                    loss.backward()
+                    self.optimizer.step()
+                    batch_loss.append(loss.item())
+
             if len(batch_loss) > 0:
                 epoch_loss.append(sum(batch_loss) / len(batch_loss))
                 logging.info('(client {}. Local Training Epoch: {} \tLoss: {:.6f}  Thread {}  Map {}'.format(self.client_index,
@@ -79,7 +104,7 @@ class Base_Client():
         weights = self.model.cpu().state_dict()
         return weights
 
-    def test(self):
+    def test(self, client_idx):
         self.model.to(self.device)
         self.model.eval()
         sigmoid = torch.nn.Sigmoid()
@@ -118,6 +143,9 @@ class Base_Client():
                 except:
                     auc = 0
                 logging.info("************* Client {} AUC = {:.2f},  Acc = {:.2f}**************".format(self.client_index, auc, acc))
+                f = open(self.result_dir + "/participants{}.txt".format(client_idx+1), "a")
+                f.write(str(auc) + "\n")
+                f.close()
                 return auc
             else:
                 logging.info("************* Client {} Acc = {:.2f} **************".format(self.client_index, acc))
@@ -125,7 +153,7 @@ class Base_Client():
     
 class Base_Server():
     def __init__(self,server_dict, args):
-        self.train_data = server_dict['train_data']
+        # self.train_data = server_dict['train_data']
         self.test_data = server_dict['test_data']
         self.device = 'cuda:{}'.format(torch.cuda.device_count()-1)
         self.model_type = server_dict['model_type']
@@ -138,16 +166,16 @@ class Base_Server():
 
     def run(self, received_info):
         server_outputs = self.operations(received_info)
-        acc = self.test()
-        self.log_info(received_info, acc)
+        # acc = self.test()
+        # self.log_info(received_info, acc)
         self.round += 1
-        if acc > self.acc:
-            torch.save(self.model.state_dict(), '{}/{}.pt'.format(self.save_path, 'server'))
-            self.acc = acc
-        acc_path = '{}/logs/{}_{}_harmony_acc.txt'.format(os.getcwd(), self.args.dataset,self.args.method)
-        f = open(acc_path, 'a')
-        f.write(str(acc) + '\n')
-        f.close()
+        # if acc > self.acc:
+        #     torch.save(self.model.state_dict(), '{}/{}.pt'.format(self.save_path, 'server'))
+        #     self.acc = acc
+        # acc_path = '{}/logs/{}_{}_harmony_acc.txt'.format(os.getcwd(), self.args.dataset,self.args.method)
+        # f = open(acc_path, 'a')
+        # f.write(str(acc) + '\n')
+        # f.close()
         return server_outputs
     
     def start(self):

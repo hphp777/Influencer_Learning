@@ -23,10 +23,12 @@ import methods.moon as moon
 import methods.fedalign as fedalign
 import methods.fedbalance as fedbalance
 import data_preprocessing.custom_multiprocess as cm
+from data_preprocessing.data_loader import dynamic_partition_data, load_dynamic_db ,_data_transforms_NIH
+from data_preprocessing.datasets import NIHTestDataset
 
 def add_args(parser):
     # Training settings
-    parser.add_argument('--method', type=str, default='fedbalance', metavar='N',
+    parser.add_argument('--method', type=str, default='fedavg', metavar='N',
                         help='Options are: fedavg, fedprox, moon, fedalign, fedbalance')
     parser.add_argument('--data_dir', type=str, default="C:/Users/hb/Desktop/data/NIH",
                         help='data directory: data/cifar100, data/cifar10, "C:/Users/hb/Desktop/data/NIH", C:/Users/hb/Desktop/data/CheXpert-v1.0-small')
@@ -34,7 +36,7 @@ def add_args(parser):
     parser.add_argument('--dataset', type=str, default="NIH",
                         help='data directory: cifar100, cifar10, NIH, CheXpert')
 
-    parser.add_argument('--partition_method', type=str, default='hetero', metavar='N',
+    parser.add_argument('--partition_method', type=str, default='homo', metavar='N',
                         help='how to partition the dataset on local clients')
 
     parser.add_argument('--partition_alpha', type=float, default=0.5, metavar='PA',
@@ -51,10 +53,10 @@ def add_args(parser):
 
     parser.add_argument('--wd', help='weight decay parameter;', type=float, default=0.0001)
 
-    parser.add_argument('--epochs', type=int, default=20, metavar='EP',
+    parser.add_argument('--epochs', type=int, default=10, metavar='EP',
                         help='how many epochs will be trained locally per round')
 
-    parser.add_argument('--comm_round', type=int, default=30,
+    parser.add_argument('--comm_round', type=int, default=20,
                         help='how many rounds of communications are conducted')
 
     parser.add_argument('--pretrained', action='store_true', default=False,  
@@ -68,6 +70,9 @@ def add_args(parser):
 
     parser.add_argument('--mult', type=float, default=0.0001, metavar='MT',
                         help='multiplier for subnet training')
+    
+    parser.add_argument('--DD', type=bool, default=True, metavar='DD',
+                        help='whether use of dynamic database')
 
     parser.add_argument('--num_subnets', type=int, default=3,
                         help='how many subnets sampled during training')
@@ -112,9 +117,9 @@ def init_process(q, Client):
     ci = q.get() # Queued에서 맨 앞의 원소를 하나 가져오고 remove
     client = Client(ci[0], ci[1]) 
 
-def run_clients(received_info):
+def run_clients(received_info, com_round):
     try:
-        return client.run(received_info) # give threads' number of model weight
+        return client.run(received_info, com_round) # give threads' number of model weight
     except KeyboardInterrupt:
         logging.info('exiting')
         return None
@@ -148,10 +153,17 @@ if __name__ == "__main__":
     args = add_args(parser)
  
     ###################################### get data
-    train_data_num, test_data_num, train_data_global, test_data_global, data_local_num_dict, train_data_local_dict, test_data_local_dict,\
-         class_num, client_pos_freq, client_neg_freq, client_imbalances = dl.load_partition_data(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size)
-    print(client_imbalances)
+    if args.DD == False :
+        train_data_num, test_data_num, train_data_global, test_data_global, data_local_num_dict, train_data_local_dict, test_data_local_dict,\
+             class_num, client_pos_freq, client_neg_freq, client_imbalances = dl.load_partition_data(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size)
+        print(client_imbalances)
     
+    if args.DD == True :
+        train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round)
+        train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
+        test_data_global = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
+        class_num = 14
+
     # train_data_num = 50000
     # test_data_num = 312
     # train_data_global, test_data_global = global train, test dataloader
@@ -167,8 +179,8 @@ if __name__ == "__main__":
         Server = fedavg.Server
         Client = fedavg.Client
         Model = resnet56 
-        server_dict = {'train_data':train_data_global, 'test_data': test_data_global, 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir}
-        client_dict = [{'train_data':train_data_local_dict, 'test_data': test_data_local_dict, 'device': i % torch.cuda.device_count(),
+        server_dict = {'train_data':train_data_local_dict, 'test_data': test_data_global, 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir}
+        client_dict = [{'train_data':train_data_local_dict, 'test_data': test_data_global, 'device': i % torch.cuda.device_count(),
                             'client_map':mapping_dict[i], 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir} for i in range(args.thread_number)]
     elif args.method=='fedprox':
         Server = fedprox.Server
@@ -234,13 +246,16 @@ if __name__ == "__main__":
     # weight of the server
     # Start Federated Training
     # the length is the number of treads
+    
     time.sleep(150*(args.client_number/16)) #  Allow time for threads to start up
     for r in range(args.comm_round):
         logging.info('***** Round: {} ************************'.format(r))
+        iterables = []
         round_start = time.time()
         # server output length :        
         # map 함수는 자체적으로 iteration 기능이 포함되어있어서 thread에 갯수만큼 server output을 하나씩 run_client에 넣어주면서 thread의 갯수만큼 실행됨
-        client_outputs = pool.map(run_clients, server_outputs) # 함수 하나와 그 함수가 프로세스의 갯수만큼 실행되는동안 하나씩 들어갈 인수 리스트
+        client_outputs = pool.starmap(run_clients, zip(server_outputs, [r])) # 함수 하나와 그 함수가 프로세스의 갯수만큼 실행되는동안 하나씩 들어갈 인수 리스트
+        # client_outputs = pool.map(lambda x: map(run_clients,x), [server_outputs, [r]])
         client_outputs = [c for sublist in client_outputs for c in sublist]  ##########자세히 client output form 확인 요망
         # sublist : 'weights': OrderedDict
         # length : the number of clients

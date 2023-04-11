@@ -30,6 +30,9 @@ def add_args(parser):
 
     parser.add_argument('--dataset', type=str, default="NIH",
                         help='data directory: cifar100, cifar10, NIH, CheXpert')
+    
+    parser.add_argument('--dynamic_db', type=bool, default=False,
+                        help='whether use of dynamic database')
 
     parser.add_argument('--partition_method', type=str, default='homo', metavar='N',
                         help='how to partition the dataset on local clients')
@@ -46,7 +49,7 @@ def add_args(parser):
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
 
-    parser.add_argument('--alpha', type=float, default= 2.0, metavar='a',
+    parser.add_argument('--alpha', type=float, default= 0.99, metavar='a',
                         help='distillation weight : 10.0, 5.0, 2.0, 0.99, 0.95, 0.5, 0.1, 0.05')
     
     parser.add_argument('--temperature', type=float, default=1.5, metavar='T',
@@ -60,7 +63,7 @@ def add_args(parser):
     parser.add_argument('--influencing_epochs', type=int, default=2, metavar='EP',
                         help='how many epochs will be trained in the distillation(influencing) step')
 
-    parser.add_argument('--influencing_round', type=int, default=30,
+    parser.add_argument('--influencing_round', type=int, default=20,
                         help='how many rounds of communications are conducted')
 
     parser.add_argument('--pretrained', action='store_true', default=False,  
@@ -141,7 +144,7 @@ if __name__ == "__main__":
     # time.sleep(150*(args.client_number/16)) #  Allow time for threads to start up
     
     ###################################### get data
-    train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.influencing_round)
+    train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.influencing_round, dynamic=args.dynamic_db)
     train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.influencing_round, train_indices)
     test_data = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
     qualification_data = torch.utils.data.DataLoader(NIHQualificationDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)

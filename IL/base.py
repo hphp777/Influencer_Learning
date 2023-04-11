@@ -64,9 +64,12 @@ class Participant():
 
         # Step2 : Influencing
         logging.info("Step 2. Influencing *****************************************************************")
-        max_idx = self.qulification_scores.index(max(self.qulification_scores))
-        logging.info("Selected Influencer : paticipant {}".format(max_idx+1))
-        self.influencing(max_idx, self.args)
+        self.max_idx = self.qulification_scores.index(max(self.qulification_scores))
+        # self.qulification_scores[self.max_idx] = 0
+        # self.second_max_idx = self.qulification_scores.index(max(self.qulification_scores))
+        logging.info("Selected Influencer : paticipant {}".format(self.max_idx+1))
+        self.influencing(self.max_idx, self.args)
+        # self.influencing(self.second_max_idx,self.args)
 
         logging.info("Step 3. Evaluation ******************************************************************")
         for client_idx in range(self.num_client):
@@ -161,16 +164,20 @@ class Participant():
 
     def influencing (self, max_idx, args):
 
-        Loss = torch.nn.KLDivLoss(reduction='batchmean')
+        Loss = torch.nn.KLDivLoss(reduction="none")
         logits_influencer = Variable(torch.Tensor(self.distill_logits[max_idx]).to(self.device), requires_grad=True)
         alpha = args.alpha
         T = args.temperature
         sigmoid = nn.Sigmoid()
+        logSigmoid = nn.LogSigmoid()
+        eps=1e-8
 
         for e in range(args.influencing_epochs):
             for client_idx in range(self.num_client):
 
                 if client_idx == max_idx:
+                    continue
+                if client_idx == self.max_idx:
                     continue
 
                 self.model.load_state_dict(self.model_weights[client_idx])
@@ -183,8 +190,21 @@ class Participant():
                 # distillation
                 for i in range(len(logits_influencer)):
 
-                    KD_loss = Loss(sigmoid(logits_follower[i]/T),
-                                sigmoid(logits_influencer[i]/T)) * (alpha * T * T)
+                    follower = torch.clamp(sigmoid(logits_follower[i]), min=eps, max=1-eps)
+                    influencer = torch.clamp(sigmoid(logits_influencer[i]), min=eps, max=1-eps)
+                    # print("Follower logits: ", follower)
+                    # print("Influencer logits: ", influencer)
+                    KD_loss1 = Loss(torch.log(follower),influencer) * alpha
+                    # print("Loss1: ", KD_loss1)
+                    KD_loss2 = Loss(torch.log(1 - follower), 1 - influencer) * alpha
+                    # print("Loss2: ", KD_loss2)
+                    KD_loss = KD_loss1 + KD_loss2
+                    # print("Loss: ", KD_loss)
+                    KD_loss = KD_loss.sum()
+                    # print("Sum: ", KD_loss)
+
+                    # KD_loss = nn.KLDivLoss()(F.log_softmax(logits_follower[i]/T, dim=1),
+                    #          F.softmax(logits_influencer[i]/T, dim=1)) * (alpha * T * T)
                     
                     KD_loss.backward()
                     self.optimizer.step()

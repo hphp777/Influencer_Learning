@@ -722,11 +722,46 @@ def get_dataloader(datadir, train_bs, test_bs, dataidxs=None):
 
     return train_dl, test_dl
 
+def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round):
+    
+    logging.info("partition data***************************************************************************************")
+    
+    # Return format : client_num x round_num
+    # item : the cumulated indices of the data
+
+    # Overall partition : evenly divide data to the given number of participants
+    if partition == "homo":
+        total_num = 69219
+        idxs = np.random.permutation(total_num)
+        overall_batch_idxs = np.array_split(idxs, n_nets)
+        idx_batch_temp = []
+        
+        final_idx_batch = []
+
+        # net_dataidx_map = {i: batch_idxs[i] for i in range(n_nets)}
+        for i in range(n_nets): 
+            idx_batch = []
+            proportions = np.random.dirichlet(np.repeat(alpha, n_round))
+            proportions = (np.cumsum(proportions) * len(overall_batch_idxs[i])).astype(int)[:-1]
+            idx_batch_temp = np.split(overall_batch_idxs[i], proportions)
+            idx_batch.append(idx_batch_temp[0].tolist())
+
+            for j in range(1, n_round):
+                
+                prior = idx_batch[j-1]
+                present = idx_batch_temp[j]
+                items = prior + present.tolist() # 여기서 모든 row에 똑같이 값이 다 들어가는데?
+                idx_batch.append(items)
+
+            final_idx_batch.append(idx_batch)
+            
+        return final_idx_batch
+
 def load_dynamic_db(data_dir, partition_method, partition_alpha, client_number, batch_size, n_round, indices):
 
     # get local dataset
     data_local_num_dict = dict() ### form 봐서 맞춰줘야 함
-    train_data_local_dict = dict()
+    train_data_local_dict = []
     train_data_global = None
     test_data_global = None
     
@@ -734,23 +769,29 @@ def load_dynamic_db(data_dir, partition_method, partition_alpha, client_number, 
         class_num = 14
         client_imbalances = []
         client_pos_freq = []
-        client_neg_freq = []
-        indices = partition_data(data_dir, partition_method, client_number, partition_alpha)
-        train_data_global = torch.utils.data.DataLoader(NIHTrainDataset(0, data_dir, transform = _data_transforms_NIH(), indices=list(range(86336))), batch_size = 32, shuffle = True)
-        
-        train_data_num = len(train_data_global)
-        test_data_num = len(test_data_global)
+        client_neg_freq = []        
+
+        for i in range(len(indices)):
+            lens = "Client {} data distribution : ".format(i+1)
+            for j in range(len(indices[0])):
+                lens += str(len(indices[i][j])) + ", "
+            print(lens)
+
         # indices = distribute_indices(length, 1, client_number)
         for i in range(client_number):
-            train_dataset = NIHTrainDataset(i, data_dir, transform = _data_transforms_NIH(), indices=indices[i][n_round])
-            total_ds_cnt = np.array(train_dataset.total_ds_cnt)
-            train_percentage = 0.8
-            train_dataset, val_dataset = torch.utils.data.random_split(data, [int(len(data)*train_percentage), len(data)-int(len(data)*train_percentage)])
-            train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = True)
-            client_pos_freq.append(total_ds_cnt.tolist())
-            client_neg_freq.append((total_ds_cnt.sum() - total_ds_cnt).tolist())
-            train_data_local_dict[i] = train_loader
-
+            train_data = []
+            for r in range(n_round): 
+                train_dataset = NIHTrainDataset(i, data_dir, transform = _data_transforms_NIH(), indices=indices[i][r])
+                train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = True)
+                train_data.append(train_loader)
+            train_data_local_dict.append(train_data)
+            # total_ds_cnt = np.array(train_dataset.total_ds_cnt)
+            # client_pos_freq.append(total_ds_cnt.tolist())
+            # client_neg_freq.append((total_ds_cnt.sum() - total_ds_cnt).tolist())
+        for i in range(client_number):
+            lens = "Client {} trainloader data distribution : ".format(i+1)
+            for r in range(n_round): 
+                lens += str(len(train_data_local_dict[i][r])) + ", "
         return train_data_local_dict
 
 

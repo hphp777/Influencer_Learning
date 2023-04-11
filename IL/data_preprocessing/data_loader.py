@@ -442,7 +442,7 @@ def partition_data(datadir, partition, n_nets, alpha):
             # the number of class, shuffled indices, record of it
             return class_num, net_dataidx_map, traindata_cls_counts, client_pos_freq, client_neg_freq, client_imbalances
 
-def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round):
+def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic = True):
     
     logging.info("partition data***************************************************************************************")
     
@@ -450,32 +450,46 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round):
     # item : the cumulated indices of the data
 
     # Overall partition : evenly divide data to the given number of participants
-    if partition == "homo":
-        total_num = 69219
-        idxs = np.random.permutation(total_num)
-        overall_batch_idxs = np.array_split(idxs, n_nets)
-        idx_batch_temp = []
-        
-        final_idx_batch = []
+    if dynamic == False:
+        if partition == "homo":
 
-        # net_dataidx_map = {i: batch_idxs[i] for i in range(n_nets)}
-        for i in range(n_nets): 
-            idx_batch = []
-            proportions = np.random.dirichlet(np.repeat(alpha, n_round))
-            proportions = (np.cumsum(proportions) * len(overall_batch_idxs[i])).astype(int)[:-1]
-            idx_batch_temp = np.split(overall_batch_idxs[i], proportions)
-            idx_batch.append(idx_batch_temp[0].tolist())
+            total_num = 69219
+            idxs = np.random.permutation(total_num)
+            overall_batch_idxs = np.array_split(idxs, n_nets)
+            final_idx_batch = []
 
-            for j in range(1, n_round):
-                
-                prior = idx_batch[j-1]
-                present = idx_batch_temp[j]
-                items = prior + present.tolist() # 여기서 모든 row에 똑같이 값이 다 들어가는데?
-                idx_batch.append(items)
+            for i in range(n_nets): 
+                final_idx_batch.append(overall_batch_idxs[i] * n_round)
 
-            final_idx_batch.append(idx_batch)
+            return final_idx_batch
+
+    if dynamic == True :
+        if partition == "homo":
+            total_num = 69219
+            idxs = np.random.permutation(total_num)
+            overall_batch_idxs = np.array_split(idxs, n_nets)
+            idx_batch_temp = []
             
-        return final_idx_batch
+            final_idx_batch = []
+
+            # net_dataidx_map = {i: batch_idxs[i] for i in range(n_nets)}
+            for i in range(n_nets): 
+                idx_batch = []
+                proportions = np.random.dirichlet(np.repeat(alpha, n_round))
+                proportions = (np.cumsum(proportions) * len(overall_batch_idxs[i])).astype(int)[:-1]
+                idx_batch_temp = np.split(overall_batch_idxs[i], proportions)
+                idx_batch.append(idx_batch_temp[0].tolist())
+
+                for j in range(1, n_round):
+                    
+                    prior = idx_batch[j-1]
+                    present = idx_batch_temp[j]
+                    items = prior + present.tolist() # 여기서 모든 row에 똑같이 값이 다 들어가는데?
+                    idx_batch.append(items)
+
+                final_idx_batch.append(idx_batch)
+                
+            return final_idx_batch
 
     elif partition == "hetero":
         net_dataidx_map = {}
