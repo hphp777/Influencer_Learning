@@ -1,0 +1,8 @@
+FL/Results
+FL/__pycache__
+FL/data_preprocessing/__pycache__
+IL/Results
+IL/__pycache__
+IL/data_preprocessing/__pycache__
+logs
+pickles

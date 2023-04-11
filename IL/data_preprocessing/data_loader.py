@@ -459,7 +459,10 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
             final_idx_batch = []
 
             for i in range(n_nets): 
-                final_idx_batch.append(overall_batch_idxs[i] * n_round)
+                idx_batch = []
+                for j in range(n_round):
+                    idx_batch.append(overall_batch_idxs[i].tolist())
+                final_idx_batch.append(idx_batch)
 
             return final_idx_batch
 
