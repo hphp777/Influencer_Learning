@@ -99,7 +99,6 @@ def get_img_num_per_cls(cifar_version, imb_factor=0.1):
         img_num_per_cls.append(int(num))
     return img_num_per_cls
 
-
 def record_net_data_stats(y_train, net_dataidx_map):
     net_cls_counts = {}
 
@@ -451,11 +450,19 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
 
     # Overall partition : evenly divide data to the given number of participants
     if dynamic == False:
+        
         if partition == "homo":
 
-            total_num = 69219
-            idxs = np.random.permutation(total_num)
-            overall_batch_idxs = np.array_split(idxs, n_nets)
+            if 'NIH' in datadir:
+                total_num = 69219
+                idxs = np.random.permutation(total_num)
+                overall_batch_idxs = np.array_split(idxs, n_nets)
+            elif 'BraTS' in datadir:
+                total_num = 124000
+                overall_batch_idxs = []
+                for n in range(n_nets):
+                    overall_batch_idxs.append(np.random.permutation(total_num))
+            
             final_idx_batch = []
 
             for i in range(n_nets): 
@@ -468,11 +475,18 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
 
     if dynamic == True :
         if partition == "homo":
-            total_num = 69219
-            idxs = np.random.permutation(total_num)
-            overall_batch_idxs = np.array_split(idxs, n_nets)
-            idx_batch_temp = []
+
+            if 'NIH' in datadir:
+                total_num = 69219
+                idxs = np.random.permutation(total_num)
+                overall_batch_idxs = np.array_split(idxs, n_nets)
+            elif 'BraTS' in datadir:
+                total_num = 124000
+                overall_batch_idxs = []
+                for n in range(n_nets):
+                    overall_batch_idxs.append(np.random.permutation(total_num))
             
+            idx_batch_temp = []
             final_idx_batch = []
 
             # net_dataidx_map = {i: batch_idxs[i] for i in range(n_nets)}
@@ -719,7 +733,6 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
             # the number of class, shuffled indices, record of it
             return class_num, net_dataidx_map, traindata_cls_counts, client_pos_freq, client_neg_freq, client_imbalances
 
-
 # for centralized training
 def get_dataloader(datadir, train_bs, test_bs, dataidxs=None):
     ################datadir is the key to discern the dataset#######################
@@ -778,8 +791,6 @@ def load_dynamic_db(data_dir, partition_method, partition_alpha, client_number, 
             for r in range(n_round): 
                 lens += str(len(train_data_local_dict[i][r])) + ", "
         return train_data_local_dict
-
-
 
 def load_partition_data(data_dir, partition_method, partition_alpha, client_number, batch_size):
 
@@ -877,3 +888,4 @@ def load_partition_data(data_dir, partition_method, partition_alpha, client_numb
 
     return train_data_num, test_data_num, train_data_global, test_data_global, \
            data_local_num_dict, train_data_local_dict, test_data_local_dict, class_num, client_pos_freq, client_neg_freq, client_imbalances
+

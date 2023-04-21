@@ -71,7 +71,7 @@ def add_args(parser):
     parser.add_argument('--mult', type=float, default=0.0001, metavar='MT',
                         help='multiplier for subnet training')
     
-    parser.add_argument('--DD', type=bool, default=True, metavar='DD',
+    parser.add_argument('--dynamic_db', type=bool, default=False, metavar='DD',
                         help='whether use of dynamic database')
 
     parser.add_argument('--num_subnets', type=int, default=3,
@@ -153,13 +153,19 @@ if __name__ == "__main__":
     args = add_args(parser)
  
     ###################################### get data
-    if args.DD == False :
-        train_data_num, test_data_num, train_data_global, test_data_global, data_local_num_dict, train_data_local_dict, test_data_local_dict,\
-             class_num, client_pos_freq, client_neg_freq, client_imbalances = dl.load_partition_data(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size)
-        print(client_imbalances)
+    # if args.dynamic_db == False :
+    #     train_data_num, test_data_num, train_data_global, test_data_global, data_local_num_dict, train_data_local_dict, test_data_local_dict,\
+    #          class_num, client_pos_freq, client_neg_freq, client_imbalances = dl.load_partition_data(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size)
+    #     print(client_imbalances)
     
-    if args.DD == True :
-        train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round)
+    if args.dynamic_db == False :
+        train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic = args.dynamic_db)
+        train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
+        test_data_global = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
+        class_num = 14
+
+    if args.dynamic_db == True :
+        train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic = args.dynamic_db)
         train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
         test_data_global = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
         class_num = 14

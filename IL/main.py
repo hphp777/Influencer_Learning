@@ -3,6 +3,7 @@ Main file to set up the FL system and train
 Code design inspired by https://github.com/FedML-AI/FedML
 '''
 import torch
+import torch.nn as nn
 import numpy as np
 import random
 import data_preprocessing.data_loader as dl
@@ -10,11 +11,16 @@ import argparse
 from models.resnet import resnet56, resnet18
 from models.resnet_fedalign import resnet56 as resnet56_fedalign
 from models.resnet_fedalign import resnet18 as resnet18_fedalign
+from models.unet_model import *
+import torchvision.models as models 
+import importlib
+importlib.reload(models)
 from torch.multiprocessing import set_start_method, Queue
 import logging
 import os
 from collections import defaultdict
 from data_preprocessing.datasets import NIHQualificationDataset, NIHTestDataset
+from data_preprocessing.datasets import BraTS2021QualificationLoader, BraTS2021TestLoader
 import time
 
 # methods
@@ -24,14 +30,16 @@ from data_preprocessing.data_loader import _data_transforms_NIH, load_dynamic_db
 
 def add_args(parser):
     # Training settings
-
+    parser.add_argument('--task', type=str, default="Segmentation",
+                        help='Classification, Segmentation')
+    
     parser.add_argument('--data_dir', type=str, default="C:/Users/hb/Desktop/data/NIH",
                         help='data directory: data/cifar100, data/cifar10, "C:/Users/hb/Desktop/data/NIH", C:/Users/hb/Desktop/data/CheXpert-v1.0-small')
 
     parser.add_argument('--dataset', type=str, default="NIH",
-                        help='data directory: cifar100, cifar10, NIH, CheXpert')
+                        help='data directory: cifar100, cifar10, NIH, CheXpert, BraTS2021')
     
-    parser.add_argument('--dynamic_db', type=bool, default=False,
+    parser.add_argument('--dynamic_db', type=bool, default=True,
                         help='whether use of dynamic database')
 
     parser.add_argument('--partition_method', type=str, default='homo', metavar='N',
@@ -54,6 +62,9 @@ def add_args(parser):
     
     parser.add_argument('--temperature', type=float, default=1.5, metavar='T',
                         help='20.0, 10.0, 8.0, 6.0, 4.5, 3.0, 2.0, 1.5')
+    
+    parser.add_argument('--num_of_influencer', type=int, default=1, metavar='T',
+                        help='number of influencer')
 
     parser.add_argument('--wd', help='weight decay parameter;', type=float, default=0.0001)
 
@@ -144,18 +155,36 @@ if __name__ == "__main__":
     # time.sleep(150*(args.client_number/16)) #  Allow time for threads to start up
     
     ###################################### get data
+    
     train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.influencing_round, dynamic=args.dynamic_db)
     train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.influencing_round, train_indices)
-    test_data = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
-    qualification_data = torch.utils.data.DataLoader(NIHQualificationDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
+    
+    if args.dataset == 'NIH':
+        test_data = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
+        qualification_data = torch.utils.data.DataLoader(NIHQualificationDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
+        class_num = 14
+    elif args.dataset == 'BraTS':
+        test_data = torch.utils.data.DataLoader(BraTS2021TestLoader(args.data_dir))
+        qualification_data = torch.utils.data.DataLoader(BraTS2021QualificationLoader(args.data_dir))
+        class_num = 4
+
     ######################################################
-    class_num = 14
+    
 
     mapping_dict = allocate_clients_to_threads(args) 
     print("Client allocation for the threads during influencing round : ", mapping_dict)
 
     Client = node.Node
-    Model = resnet56
+
+    # model
+    if args.task == 'classification':
+        # Model = resnet56
+        Model = models.efficientnet_b0(pretrained=True)
+        num_ftrs = Model.classifier[1].in_features
+        Model.classifier[1] = nn.Linear(in_features=num_ftrs, out_features=class_num)
+    elif args.task == 'segmentation':
+        Model = UNet(1, class_num, bilinear=False) 
+
     client_dict = [{'train_data':train_data_local_dict, 'qulification_data': qualification_data, 'test_data' : test_data,'device': i % torch.cuda.device_count(),
                         'client_map':mapping_dict[i], 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir} for i in range(args.thread_number)]
 

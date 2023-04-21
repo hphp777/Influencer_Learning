@@ -23,8 +23,10 @@ class Base_Client():
         self.client_index = None
         now = datetime.now()
 
-        self.result_dir = "C:/Users/hb/Desktop/code/Influencer_learning/FL/Results/{}_{}_{}({}_{})".format(now.date(), str(now.hour) + "H", str(now.minute) + "M", str(self.args.comm_round) + "I", str(self.args.epochs) + "L")
+        self.result_dir = "C:/Users/hb/Desktop/code/Influencer_learning/FL/Results/{}_{}H_{}M".format(now.date(), str(now.hour), str(now.minute))
         os.mkdir(self.result_dir)
+        c = open(self.result_dir + "/config.txt", "w")
+        c.write("learning_method: FL, dynamic_db: {}, comm_round: {}, local_epoch: {}".format(str(self.args.dynamic_db), str(self.args.comm_round), str(self.args.epochs)))
     
     def load_client_state_dict(self, server_state_dict):
         # If you want to customize how to state dict is loaded you can do so here
@@ -59,12 +61,12 @@ class Base_Client():
         self.model.to(self.device)
         self.model.train()
         epoch_loss = []
-        if self.args.DD == True :  
-            logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.train_dataloader[com_round]) * 32))
+
+        logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.train_dataloader[com_round]) * 32))
         for epoch in range(self.args.epochs):
             batch_loss = []
-            if self.args.DD == False :
-                for batch_idx, (images, labels) in enumerate(self.train_dataloader):
+            if self.args.dynamic_db == False :
+                for batch_idx, (images, labels) in enumerate(self.train_dataloader[com_round]):
                     # logging.info(images.shape)
                     images, labels = images.to(self.device), labels.to(self.device)
                     self.optimizer.zero_grad()
@@ -80,7 +82,7 @@ class Base_Client():
                     self.optimizer.step()
                     batch_loss.append(loss.item())
 
-            elif self.args.DD == True :  
+            elif self.args.dynamic_db == True :  
                 for batch_idx, (images, labels) in enumerate(self.train_dataloader[com_round]):
                     # logging.info(images.shape)
                     images, labels = images.to(self.device), labels.to(self.device)
