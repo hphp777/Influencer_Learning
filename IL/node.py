@@ -12,7 +12,7 @@ class Node(Participant):
         self.model = self.model_type.to(self.device)
         if args.task == 'segmentation':
             self.criterion = nn.CrossEntropyLoss().to(self.device)
-        else:
+        elif args.task == 'classification':
             if 'NIH' in self.dir or 'CheXpert' in self.dir:
                 self.criterion = torch.nn.BCEWithLogitsLoss().to(self.device)
             else:

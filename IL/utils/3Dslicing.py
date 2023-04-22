@@ -12,13 +12,13 @@ p5 = list(range(800,1000))
 q = list(range(125))
 t = list(range(126))
 
-folder_path = "C:/Users/hb/Desktop/data/BraTS2021/3D/Training/BraTS2021_" ### 
-save_path_img = "C:/Users/hb/Desktop/data/BraTS2021/2D/Training/Participant4/imgs/" ###
-save_path_label = "C:/Users/hb/Desktop/data/BraTS2021/2D/Training/Participant4/labels/" ###
+folder_path = "D:/Data/BraTS2021/3D/Training/BraTS2021_" ### 
+save_path_img = "D:/Data/BraTS2021/2D/Training/Participant5/imgs/" ###
+save_path_label = "D:/Data/BraTS2021/2D/Training/Participant5/labels/" ###
 data_idx = 0
 
-for i in range(len(p4)): #### 
-    item_path = folder_path + str(p4[i]) ### 
+for i in range(len(p5)): #### 
+    item_path = folder_path + str(p5[i]) ### 
     items = os.listdir(item_path)
     label = None
     label_index = None

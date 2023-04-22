@@ -28,6 +28,7 @@ import torch.utils.data as data
 import torchvision.transforms as transforms
 from data_preprocessing import config
 from data_preprocessing.datasets import CIFAR_truncated, ImageFolder_custom, NIHTestDataset, NIHTrainDataset, ChexpertTrainDataset, ChexpertTestDataset
+from data_preprocessing.datasets import BraTS2021TrainLoader, BraTS2021QualificationLoader, BraTS2021TestLoader
 
 logging.basicConfig()
 logger = logging.getLogger()
@@ -786,6 +787,27 @@ def load_dynamic_db(data_dir, partition_method, partition_alpha, client_number, 
             # total_ds_cnt = np.array(train_dataset.total_ds_cnt)
             # client_pos_freq.append(total_ds_cnt.tolist())
             # client_neg_freq.append((total_ds_cnt.sum() - total_ds_cnt).tolist())
+        for i in range(client_number):
+            lens = "Client {} trainloader data distribution : ".format(i+1)
+            for r in range(n_round): 
+                lens += str(len(train_data_local_dict[i][r])) + ", "
+        return train_data_local_dict
+    
+    elif 'BraTS' in data_dir:
+        for i in range(len(indices)):
+            lens = "Client {} data distribution : ".format(i+1)
+            for j in range(len(indices[0])):
+                lens += str(len(indices[i][j])) + ", "
+            print(lens)
+
+        for i in range(client_number):
+            train_data = []
+            for r in range(n_round): 
+                train_dataset = BraTS2021TrainLoader(data_dir,client_number, indices=indices[i][r])
+                train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = True)
+                train_data.append(train_loader)
+            train_data_local_dict.append(train_data)
+
         for i in range(client_number):
             lens = "Client {} trainloader data distribution : ".format(i+1)
             for r in range(n_round): 

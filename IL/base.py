@@ -40,7 +40,7 @@ class Participant():
         self.model_dir = "C:/Users/hb/Desktop/code/Influencer_learning/IL/Results/{}_{}H_{}M/models".format(now.date(), str(now.hour), str(now.minute))
         os.mkdir(self.model_dir)
         c = open(self.result_dir + "/config.txt", "w")
-        c.write("learning method: IL, alpha: {}, temperature: {}, dynamic_db: {}, num_of_influencer: {}, inf_round: {}, local_epoch: {}".format(str(self.args.alpha), str(self.args.temperature), str(self.args.dynamic_db), str(self.args.num_of_influencer), str(self.args.influencing_round), str(self.args.epochs)))
+        c.write("Task: {}, learning method: IL, alpha: {}, temperature: {}, dynamic_db: {}, num_of_influencer: {}, inf_round: {}, local_epoch: {}".format(self.args.task,str(self.args.alpha), str(self.args.temperature), str(self.args.dynamic_db), str(self.args.num_of_influencer), str(self.args.influencing_round), str(self.args.epochs)))
         for i in range(self.num_client):
             open(self.result_dir + "/participants{}.txt".format(i+1), "w")
     
@@ -95,6 +95,7 @@ class Participant():
             for batch_idx, (images, labels) in enumerate(self.train_dataloader[inf_round]):
                 # logging.info(images.shape)
                 images, labels = images.to(self.device), labels.to(self.device)
+                # print(images.size())
                 self.optimizer.zero_grad()
 
                 if self.args.task == 'classification':
@@ -107,8 +108,8 @@ class Participant():
 
                 elif self.args.task == "segmentation":
                     masks_pred = self.model(images)
-                    true_masks = labels
-                    loss = self.criterion(masks_pred, true_masks) 
+                    true_masks = labels.squeeze(1).type(torch.LongTensor)
+                    loss = self.criterion(F.softmax(masks_pred.to(self.device), dim=1).float(), true_masks.to(self.device)) 
                 
                 loss.backward()
                 self.optimizer.step()
@@ -131,11 +132,11 @@ class Participant():
         test_sample_number = 0.0
         val_loader_examples_num = len(self.qualification_dataloader.dataset)
 
-        if self.task == 'classification':
+        if self.args.task == 'classification':
             probs = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
             gt    = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
             k=0
-        elif self.task == 'segmentation':
+        elif self.args.task == 'segmentation':
             dice_score = 0
             probs = []
 
@@ -165,12 +166,15 @@ class Participant():
                         test_sample_number += target.size(0)
                     acc = (test_correct / test_sample_number)*100
                 elif self.args.task == 'segmentation':
-                    mask_pred = F.one_hot(out.argmax(dim=1), 4).permute(0, 3, 1, 2).float()
+                    mask_pred = F.one_hot(out.argmax(dim=1), 5).permute(0, 3, 1, 2).float()
+                    print(mask_pred.size())
+                    target = F.one_hot(target, 5).permute(0, 3, 1, 2).float()
+                    print(target.size())
                     probs.append(out.cpu())
-                    dice_score += multiclass_dice_coeff(mask_pred[:, 1:, ...], target[:, 1:, ...], reduce_batch_first=False)
+                    dice_score += multiclass_dice_coeff(mask_pred, target, reduce_batch_first=False)
 
 
-            if self.task == 'classification':
+            if self.args.task == 'classification':
                 if self.args.dataset == 'NIH' or self.args.dataset == 'CheXpert':
                     try:
                         auc = roc_auc_score(gt, probs)
@@ -182,7 +186,7 @@ class Participant():
                 else:
                     logging.info("*************  Qualification Score (Client {}) : Acc = {:.2f} **************".format(self.client_index, acc))
                     return acc
-            elif self.task == 'segmentation':
+            elif self.args.task == 'segmentation':
                 probs = np.array(probs)
                 dice_score /= len(self.qualification_dataloader)
                 logging.info("* Qualification Score of participant {} : Dice Score = {:.2f}*".format(self.client_index+1, dice_score))
@@ -376,7 +380,7 @@ class Participant():
                 else:
                     logging.info("************* Client {} Acc = {:.2f} **************".format(client_idx, acc))
                     return acc
-            elif self.task == 'segmentation':
+            elif self.args.task == 'segmentation':
                 probs = np.array(probs)
                 dice_score /= len(self.qualification_dataloader)
                 logging.info("Participant {} test result: Dice Score = {:.2f}*".format(self.client_index+1, dice_score))

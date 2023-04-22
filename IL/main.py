@@ -30,13 +30,14 @@ from data_preprocessing.data_loader import _data_transforms_NIH, load_dynamic_db
 
 def add_args(parser):
     # Training settings
-    parser.add_argument('--task', type=str, default="Segmentation",
-                        help='Classification, Segmentation')
+    parser.add_argument('--task', type=str, default="segmentation",
+                        help='classification, segmentation')
     
-    parser.add_argument('--data_dir', type=str, default="C:/Users/hb/Desktop/data/NIH",
-                        help='data directory: data/cifar100, data/cifar10, "C:/Users/hb/Desktop/data/NIH", C:/Users/hb/Desktop/data/CheXpert-v1.0-small')
+    parser.add_argument('--data_dir', type=str, default="D:/Data/BraTS2021/2D",
+                        help='data directory: data/cifar100, data/cifar10, "C:/Users/hb/Desktop/data/NIH", \
+                        C:/Users/hb/Desktop/data/CheXpert-v1.0-small, "D:/Data/BraTS2021/2D"')
 
-    parser.add_argument('--dataset', type=str, default="NIH",
+    parser.add_argument('--dataset', type=str, default="BraTS2021",
                         help='data directory: cifar100, cifar10, NIH, CheXpert, BraTS2021')
     
     parser.add_argument('--dynamic_db', type=bool, default=True,
@@ -48,7 +49,7 @@ def add_args(parser):
     parser.add_argument('--partition_alpha', type=float, default=0.5, metavar='PA',
                         help='alpha value for Dirichlet distribution partitioning of data(default: 0.5)')
 
-    parser.add_argument('--client_number', type=int, default=5, metavar='NN',
+    parser.add_argument('--client_number', type=int, default=2, metavar='NN',
                         help='number of clients in the FL system')
 
     parser.add_argument('--batch_size', type=int, default=32, metavar='N',
@@ -68,7 +69,7 @@ def add_args(parser):
 
     parser.add_argument('--wd', help='weight decay parameter;', type=float, default=0.0001)
 
-    parser.add_argument('--epochs', type=int, default=10, metavar='EP',
+    parser.add_argument('--epochs', type=int, default=1, metavar='EP',
                         help='how many epochs will be trained locally per round')
     
     parser.add_argument('--influencing_epochs', type=int, default=2, metavar='EP',
@@ -163,10 +164,10 @@ if __name__ == "__main__":
         test_data = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
         qualification_data = torch.utils.data.DataLoader(NIHQualificationDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
         class_num = 14
-    elif args.dataset == 'BraTS':
+    elif args.dataset == 'BraTS2021':
         test_data = torch.utils.data.DataLoader(BraTS2021TestLoader(args.data_dir))
         qualification_data = torch.utils.data.DataLoader(BraTS2021QualificationLoader(args.data_dir))
-        class_num = 4
+        class_num = 5
 
     ######################################################
     
