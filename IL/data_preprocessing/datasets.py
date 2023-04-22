@@ -602,7 +602,6 @@ class BraTS2021TrainLoader(Dataset): # custom dataset
         
         self.dir = dir + '/Training/participant' + str(participant_num)
         self.indices = indices
-        self.cls = {0: 0, 255: 1} 
 
     def __len__(self):
         return len(self.indices)
@@ -653,15 +652,17 @@ class BraTS2021QualificationLoader(Dataset): # custom dataset
         return kidney, mask
 
     def __init__(self, dir):
-        
+
+        self.indices = list(range(77500))
+        random.shuffle(self.indices)
+        self.indices = self.indices[:int(0.1 * len(self.indices))]
         self.dir = dir + "/Qualification"
-        self.cls = {0: 0, 255: 1} 
 
     def __len__(self):
-        return len(os.listdir(self.dir + '/imgs'))
+        return len(self.indices)
 
     def __getitem__(self, index): 
-        images, masks= self.BraTS2021loader(index)
+        images, masks= self.BraTS2021loader(self.indices[index])
 
         return images, masks
     
@@ -707,13 +708,16 @@ class BraTS2021TestLoader(Dataset): # custom dataset
 
     def __init__(self, dir):
         
+        self.indices = list(range(77500))
+        random.shuffle(self.indices)
+        self.indices = self.indices[:int(0.1 * len(self.indices))]
         self.dir = dir + "/Test"
-        self.cls = {0: 0, 255: 1} 
 
     def __len__(self):
-        return len(os.listdir(self.dir + '/imgs'))
+        # len(os.listdir(self.dir + '/imgs'))
+        return len(self.indices)
 
     def __getitem__(self, index): 
-        images, masks= self.BraTS2021loader(index)
+        images, masks= self.BraTS2021loader(self.indices[index])
 
         return images, masks

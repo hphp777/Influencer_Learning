@@ -207,7 +207,7 @@ class NIHTrainDataset(Dataset):
         plt.gcf().subplots_adjust(bottom=0.40)
         plt.xticks(rotation = 90)
         plt.xlabel('Diseases')
-        plt.savefig('C:/Users/hb/Desktop/code/3.FedBalance_mp/data/NIH/Client{}_disease_distribution.png'.format(c_num))
+        plt.savefig('C:/Users/hb/Desktop/code/Influencer_learning/IL/data_preprocessing/Client{}_disease_distribution.png'.format(c_num))
         plt.clf()
 
     def get_ds_cnt(self, c_num):
@@ -299,6 +299,7 @@ class NIHTestDataset(Dataset):
         self.all_classes = ['Cardiomegaly','Emphysema','Effusion','Hernia','Infiltration','Mass','Nodule','Atelectasis','Pneumothorax','Pleural_Thickening','Pneumonia','Fibrosis','Edema','Consolidation', 'No Finding']
 
         # loading the classes list
+        
         with open(os.path.join(config.pkl_dir_path, config.disease_classes_pkl_path), 'rb') as handle:
             self.all_classes = pickle.load(handle) 
         # get test_df
@@ -557,3 +558,166 @@ class ChexpertTestDataset(Dataset):
     def __len__(self):
         return len(self.selecte_data)
 
+class BraTS2021TrainLoader(Dataset): # custom dataset
+
+    def BraTS2021loader(self, index): # index = number
+        
+        brain = np.load(self.dir + "/imgs/" + str(index) + ".npy")
+        mask = np.load(self.dir + "/labels/" + str(index) + ".npy")                  
+
+        mean = np.mean(brain)
+        std = np.std(brain)
+
+        if mean == 0 or std == 0 :
+            transform1 = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.ToTensor(),
+            ])
+        else :
+            transform1 = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std, inplace=False),
+            ]) 
+        
+
+        transform2 = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.ToTensor(),
+        ])
+
+        kidney = transform1(brain)
+        mask = transform2(mask)
+
+        # fig, (ax1, ax2) = plt.subplots(1,2, figsize = (12, 6))
+        # ax1.imshow(kidney[0])
+        # ax1.set_title('input')
+        # ax2.imshow(mask[0])
+        # ax2.set_title('mask')
+        # plt.show()
+
+        return kidney, mask
+
+    def __init__(self, dir, participant_num, indices):
+        
+        self.dir = dir + '/Training/participant' + str(participant_num)
+        self.indices = indices
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, index): 
+        images, masks= self.BraTS2021loader(self.indices[index])
+
+        return images, masks
+    
+class BraTS2021QualificationLoader(Dataset): # custom dataset
+
+    def BraTS2021loader(self, index): # index = number
+        
+        brain = np.load(self.dir + "/imgs/" + str(index) + ".npy")
+        mask = np.load(self.dir + "/labels/" + str(index) + ".npy")                  
+
+        mean = np.mean(brain)
+        std = np.std(brain)
+
+        if mean == 0 or std == 0 :
+            transform1 = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.ToTensor(),
+            ])
+        else :
+            transform1 = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std, inplace=False),
+            ]) 
+        
+
+        transform2 = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.ToTensor(),
+        ])
+
+        kidney = transform1(brain)
+        mask = transform2(mask)
+
+        # fig, (ax1, ax2) = plt.subplots(1,2, figsize = (12, 6))
+        # ax1.imshow(kidney[0])
+        # ax1.set_title('input')
+        # ax2.imshow(mask[0])
+        # ax2.set_title('mask')
+        # plt.show()
+
+        return kidney, mask
+
+    def __init__(self, dir):
+
+        self.indices = list(range(77500))
+        random.shuffle(self.indices)
+        self.indices = self.indices[:int(0.1 * len(self.indices))]
+        self.dir = dir + "/Qualification"
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, index): 
+        images, masks= self.BraTS2021loader(self.indices[index])
+
+        return images, masks
+    
+class BraTS2021TestLoader(Dataset): # custom dataset
+
+    def BraTS2021loader(self, index): # index = number
+        
+        brain = np.load(self.dir + "/imgs/" + str(index) + ".npy")
+        mask = np.load(self.dir + "/labels/" + str(index) + ".npy")                  
+
+        mean = np.mean(brain)
+        std = np.std(brain)
+
+        if mean == 0 or std == 0 :
+            transform1 = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.ToTensor(),
+            ])
+        else :
+            transform1 = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std, inplace=False),
+            ]) 
+        
+
+        transform2 = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.ToTensor(),
+        ])
+
+        kidney = transform1(brain)
+        mask = transform2(mask)
+
+        # fig, (ax1, ax2) = plt.subplots(1,2, figsize = (12, 6))
+        # ax1.imshow(kidney[0])
+        # ax1.set_title('input')
+        # ax2.imshow(mask[0])
+        # ax2.set_title('mask')
+        # plt.show()
+
+        return kidney, mask
+
+    def __init__(self, dir):
+        
+        self.indices = list(range(77500))
+        random.shuffle(self.indices)
+        self.indices = self.indices[:int(0.1 * len(self.indices))]
+        self.dir = dir + "/Test"
+
+    def __len__(self):
+        # len(os.listdir(self.dir + '/imgs'))
+        return len(self.indices)
+
+    def __getitem__(self, index): 
+        images, masks= self.BraTS2021loader(self.indices[index])
+
+        return images, masks

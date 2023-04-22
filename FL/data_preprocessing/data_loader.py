@@ -28,6 +28,7 @@ import torch.utils.data as data
 import torchvision.transforms as transforms
 from data_preprocessing import config
 from data_preprocessing.datasets import CIFAR_truncated, ImageFolder_custom, NIHTestDataset, NIHTrainDataset, ChexpertTrainDataset, ChexpertTestDataset
+from data_preprocessing.datasets import BraTS2021TrainLoader, BraTS2021QualificationLoader, BraTS2021TestLoader
 
 logging.basicConfig()
 logger = logging.getLogger()
@@ -98,7 +99,6 @@ def get_img_num_per_cls(cifar_version, imb_factor=0.1):
         num = img_max * (imb_factor**(cls_idx / (cls_num - 1.0)))
         img_num_per_cls.append(int(num))
     return img_num_per_cls
-
 
 def record_net_data_stats(y_train, net_dataidx_map):
     net_cls_counts = {}
@@ -442,24 +442,28 @@ def partition_data(datadir, partition, n_nets, alpha):
             # the number of class, shuffled indices, record of it
             return class_num, net_dataidx_map, traindata_cls_counts, client_pos_freq, client_neg_freq, client_imbalances
 
-def dynamic_partition_data(datadir, partition="homo", n_nets = 5, alpha = 0.5, n_round = 10, dynamic = False):
+def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic = True):
     
-    logging.info("*********partition data***************")
+    logging.info("partition data***************************************************************************************")
     
     # Return format : client_num x round_num
     # item : the cumulated indices of the data
 
     # Overall partition : evenly divide data to the given number of participants
-    total_num = 69219
-    idxs = np.random.permutation(total_num)
-    overall_batch_idxs = np.array_split(idxs, n_nets)
-
     if dynamic == False:
+        
         if partition == "homo":
 
-            total_num = 69219
-            idxs = np.random.permutation(total_num)
-            overall_batch_idxs = np.array_split(idxs, n_nets)
+            if 'NIH' in datadir:
+                total_num = 69219
+                idxs = np.random.permutation(total_num)
+                overall_batch_idxs = np.array_split(idxs, n_nets)
+            elif 'BraTS' in datadir:
+                total_num = 124000
+                overall_batch_idxs = []
+                for n in range(n_nets):
+                    overall_batch_idxs.append(np.random.permutation(total_num))
+            
             final_idx_batch = []
 
             for i in range(n_nets): 
@@ -470,252 +474,265 @@ def dynamic_partition_data(datadir, partition="homo", n_nets = 5, alpha = 0.5, n
 
             return final_idx_batch
 
-    if dynamic == True:
+    if dynamic == True :
         if partition == "homo":
-            total_num = 69219
-            idxs = np.random.permutation(total_num)
-            overall_batch_idxs = np.array_split(idxs, n_nets)
+
+            if 'NIH' in datadir:
+                total_num = 69219
+                idxs = np.random.permutation(total_num)
+                overall_batch_idxs = np.array_split(idxs, n_nets)
+            elif 'BraTS' in datadir:
+                total_num = 124000
+                overall_batch_idxs = []
+                for n in range(n_nets):
+                    overall_batch_idxs.append(np.random.permutation(total_num)[:int(0.2*len(np.random.permutation(total_num)))])
+            
             idx_batch_temp = []
-            idx_batch = [[0]*10]*5
+            final_idx_batch = []
+
             # net_dataidx_map = {i: batch_idxs[i] for i in range(n_nets)}
             for i in range(n_nets): 
+                idx_batch = []
                 proportions = np.random.dirichlet(np.repeat(alpha, n_round))
-                proportions = (np.cumsum(proportions) * len(overall_batch_idxs[0])).astype(int)[:-1]
-                idx_batch_temp.append(np.split(overall_batch_idxs[i], proportions))
-                idx_batch[i][0] = idx_batch_temp[i][0].tolist()
+                proportions = (np.cumsum(proportions) * len(overall_batch_idxs[i])).astype(int)[:-1]
+                idx_batch_temp = np.split(overall_batch_idxs[i], proportions)
+                idx_batch.append(idx_batch_temp[0].tolist())
 
-            for j in range(1, n_round):
-                prior = idx_batch[i][j-1]
-                present = idx_batch_temp[i][j]
-                idx_batch[i][j] = prior + present.tolist()
-
-            return idx_batch
-
-        elif partition == "hetero":
-            net_dataidx_map = {}
-            min_size = 0
-            idx_batch = [[] for _ in range(n_nets)] # n_nuts : the number of clients
-            client_pos_proportions = []
-            client_pos_freq = []
-            client_neg_proportions = []
-            client_neg_freq = []
-            client_imbalances = []
-            # [[], [], [], [], [], [], [], [], [], []] # the number of clients
-            # for each class in the dataset
-            if 'NIH' in datadir or 'CheXpert' in datadir:
-                N = 86336
-                idx_k = np.array(list(range(N)))
-                np.random.shuffle(idx_k)
-                while min_size < 10:
-                    proportions = np.random.dirichlet(np.repeat(alpha, n_nets))
-                    proportions = np.array([p * (len(idx_j) < N / n_nets) for p, idx_j in zip(proportions, idx_batch)])
-                    proportions = proportions / proportions.sum()
+                for j in range(1, n_round):
                     
-                    proportions = (np.cumsum(proportions) * N).astype(int)[:-1]
-                    idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
-                    min_size = min([len(idx_j) for idx_j in idx_batch])
+                    prior = idx_batch[j-1]
+                    present = idx_batch_temp[j]
+                    items = prior + present.tolist() # 여기서 모든 row에 똑같이 값이 다 들어가는데?
+                    idx_batch.append(items)
+
+                final_idx_batch.append(idx_batch)
                 
-                for j in range(n_nets):
-                    np.random.shuffle(idx_batch[j]) # shuffle once more
-                    net_dataidx_map[j] = idx_batch[j]
-                    
-                return net_dataidx_map
+            return final_idx_batch
+
+    elif partition == "hetero":
+        net_dataidx_map = {}
+        min_size = 0
+        idx_batch = [[] for _ in range(n_nets)] # n_nuts : the number of clients
+        client_pos_proportions = []
+        client_pos_freq = []
+        client_neg_proportions = []
+        client_neg_freq = []
+        client_imbalances = []
+        # [[], [], [], [], [], [], [], [], [], []] # the number of clients
+        # for each class in the dataset
+        if 'NIH' in datadir or 'CheXpert' in datadir:
+            N = 86336
+            idx_k = np.array(list(range(N)))
+            np.random.shuffle(idx_k)
+            while min_size < 10:
+                proportions = np.random.dirichlet(np.repeat(alpha, n_nets))
+                proportions = np.array([p * (len(idx_j) < N / n_nets) for p, idx_j in zip(proportions, idx_batch)])
+                proportions = proportions / proportions.sum()
+                
+                proportions = (np.cumsum(proportions) * N).astype(int)[:-1]
+                idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
+                min_size = min([len(idx_j) for idx_j in idx_batch])
             
-            elif 'cifar100' in datadir:
-                long_tail = get_img_num_per_cls('100')
-                print("Long Tail: ", long_tail)
-                y_train, y_test = load_data(datadir)
-                n_train = y_train.shape[0]
-                n_test = y_test.shape[0]
-                class_num = len(np.unique(y_train))
-                min_size = 0
-                K = class_num
-                N = n_train
-                logging.info("N = " + str(N))
+            for j in range(n_nets):
+                np.random.shuffle(idx_batch[j]) # shuffle once more
+                net_dataidx_map[j] = idx_batch[j]
+                
+            return net_dataidx_map
+        
+        elif 'cifar100' in datadir:
+            long_tail = get_img_num_per_cls('100')
+            print("Long Tail: ", long_tail)
+            y_train, y_test = load_data(datadir)
+            n_train = y_train.shape[0]
+            n_test = y_test.shape[0]
+            class_num = len(np.unique(y_train))
+            min_size = 0
+            K = class_num
+            N = n_train
+            logging.info("N = " + str(N))
+            class_proportions = []
+            class_freq = []
+            
+            while min_size < 10:
+                proportionss = np.random.dirichlet(np.repeat(alpha, n_nets))
+                idx_batch = [[] for _ in range(n_nets)]
                 class_proportions = []
                 class_freq = []
+                class_neg_proportions = []
+                class_neg_freq = []
                 
-                while min_size < 10:
+                for k in range(K): # partition for the class k
+                    idx_k = np.where(y_train == k)[0]
+                    np.random.shuffle(idx_k)
+                    idx_k = idx_k[:long_tail[k]]
+
                     proportionss = np.random.dirichlet(np.repeat(alpha, n_nets))
-                    idx_batch = [[] for _ in range(n_nets)]
-                    class_proportions = []
-                    class_freq = []
-                    class_neg_proportions = []
-                    class_neg_freq = []
+                    proportions = proportionss / proportionss.sum()
+                    # print(proportions)
+
+                    class_proportions.append(proportions)
+                    class_freq.append((proportions * len(idx_k)).astype(int))
+                    # print((proportions * len(idx_k)).astype(int))
+                    class_neg_proportions.append(1 - proportions)
+                    class_neg_freq.append(((1 - proportions) * len(idx_k)).astype(int))
                     
-                    for k in range(K): # partition for the class k
-                        idx_k = np.where(y_train == k)[0]
-                        np.random.shuffle(idx_k)
-                        idx_k = idx_k[:long_tail[k]]
-
-                        proportionss = np.random.dirichlet(np.repeat(alpha, n_nets))
-                        proportions = proportionss / proportionss.sum()
-                        # print(proportions)
-
-                        class_proportions.append(proportions)
-                        class_freq.append((proportions * len(idx_k)).astype(int))
-                        # print((proportions * len(idx_k)).astype(int))
-                        class_neg_proportions.append(1 - proportions)
-                        class_neg_freq.append(((1 - proportions) * len(idx_k)).astype(int))
-                        
-                        min_data = min((proportions * len(idx_k)).astype(int))
-                        # if min_data < 1 :
-                        #     min_size = 0
-                        #     break
-                        
-                        # Same as above
-                        proportions = (np.cumsum(proportions) * len(idx_k)).astype(int)[:-1]
-                        # cumsum : cumulative summation
-                        # len(idx_k) : 5000
-                        # proportion starting index
-                        idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
-
-                        # fivide idx_k according to the proportion
-                        # idx_j = []
-                        # idx : indices for each clients
-                        # idx_batch : divides indices
-                        min_size = min([len(idx_j) for idx_j in idx_batch])
-
-                client_pos_freq = np.array(class_freq)
-                client_pos_freq = client_pos_freq.T
-                print(len(client_pos_freq[0]))
-                client_neg_freq = np.array(class_neg_freq)
-                client_neg_freq = client_neg_freq.T
-
-                for k in range(16):
-                    all_classes = list(range(1, 101))
-                    plt.figure(figsize=(8,4))
-                    plt.title('Client{} Data Distribution'.format(k), fontsize=20)
-                    plt.bar(all_classes, client_pos_freq[k])
-                    plt.tight_layout()
-                    plt.gcf().subplots_adjust(bottom=0.40)
-                    plt.savefig('C:/Users/hb/Desktop/code/3.FedBalance_mp/data_distribution/Client{}_Data_distribution.png'.format(k))
-                    plt.clf()
-
-                # Get clients' degree of data imbalances.
-                for i in range(n_nets):
-                    difference_cnt = client_pos_freq[i] - client_pos_freq[i].mean()
-                    for i in range(len(difference_cnt)):
-                        difference_cnt[i] = difference_cnt[i] * difference_cnt[i]        
-                    for i in range(len(difference_cnt)):
-                        difference_cnt[i] = difference_cnt[i] / difference_cnt.sum()
-                    # Calculate the level of imbalnce
-                    difference_cnt -= difference_cnt.mean()
-                    for i in range(len(difference_cnt)):
-                        difference_cnt[i] = (difference_cnt[i] * difference_cnt[i])
-                    client_imbalances.append(1 / difference_cnt.sum())
-
-                client_imbalances = np.array(client_imbalances)
-                client_imbalances =  client_imbalances / client_imbalances.sum()
-
-                for j in range(n_nets):
-                    np.random.shuffle(idx_batch[j]) # shuffle once more
-                    net_dataidx_map[j] = idx_batch[j]
-
-                traindata_cls_counts = record_net_data_stats(y_train, net_dataidx_map)
-
-                # the number of class, shuffled indices, record of it
-                return class_num, net_dataidx_map, traindata_cls_counts, client_pos_freq, client_neg_freq, client_imbalances
-
-            
-            elif 'cifar10' in datadir:
-                long_tail = get_img_num_per_cls('10')
-                print("Long tail:", long_tail)
-                y_train, y_test = load_data(datadir)
-                n_train = y_train.shape[0]
-                n_test = y_test.shape[0]
-                class_num = len(np.unique(y_train))
-                min_size = 0
-                K = class_num
-                N = n_train
-                logging.info("N = " + str(N))
-                while min_size < 10:
-                    idx_batch = [[] for _ in range(n_nets)]
-                    class_proportions = []
-                    class_freq = []
-                    class_neg_proportions = []
-                    class_neg_freq = []
-                    # proportionss = np.random.dirichlet(np.repeat(alpha, n_nets))
+                    min_data = min((proportions * len(idx_k)).astype(int))
+                    # if min_data < 1 :
+                    #     min_size = 0
+                    #     break
                     
-                    for k in range(K): # partition for the class k
-                        idx_k = np.where(y_train == k)[0]
-                        np.random.shuffle(idx_k)
-                        # idx_k = idx_k[:long_tail[k]]
-                        ## Balance
-                        # proportions = np.array([p * (len(idx_j) < N / n_nets) for p, idx_j in zip(proportionss, idx_batch)])
-                        # p is proportion for client(scalar)
-                        # idx_j is []
-                        # (len(idx_j) < N / n_nets) is True
-                        proportionss = np.random.dirichlet(np.repeat(alpha, n_nets))
-                        proportions = proportionss / proportionss.sum()
-                        # print(proportions)
+                    # Same as above
+                    proportions = (np.cumsum(proportions) * len(idx_k)).astype(int)[:-1]
+                    # cumsum : cumulative summation
+                    # len(idx_k) : 5000
+                    # proportion starting index
+                    idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
 
-                        class_proportions.append(proportions)
-                        class_freq.append((proportions * len(idx_k)).astype(int))
-                        # print((proportions * len(idx_k)).astype(int))
-                        class_neg_proportions.append(1 - proportions)
-                        class_neg_freq.append(((1 - proportions) * len(idx_k)).astype(int))
-                        
-                        min_data = min((proportions * len(idx_k)).astype(int))
-                        # if min_data < 10 :
-                        #     min_size = 0
-                        #     print(min_data)
-                        #     break
-                        
-                        # Same as above
-                        proportions = (np.cumsum(proportions) * len(idx_k)).astype(int)[:-1]
-                        # cumsum : cumulative summation
-                        # len(idx_k) : 5000
-                        # proportion starting index
-                        idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
+                    # fivide idx_k according to the proportion
+                    # idx_j = []
+                    # idx : indices for each clients
+                    # idx_batch : divides indices
+                    min_size = min([len(idx_j) for idx_j in idx_batch])
 
-                        # fivide idx_k according to the proportion
-                        # idx_j = []
-                        # idx : indices for each clients
-                        # idx_batch : divides indices
-                        min_size = min([len(idx_j) for idx_j in idx_batch])
+            client_pos_freq = np.array(class_freq)
+            client_pos_freq = client_pos_freq.T
+            print(len(client_pos_freq[0]))
+            client_neg_freq = np.array(class_neg_freq)
+            client_neg_freq = client_neg_freq.T
 
-                client_pos_freq = np.array(class_freq)
-                client_pos_freq = client_pos_freq.T
-                print(client_pos_freq)
-                client_neg_freq = np.array(class_neg_freq)
-                client_neg_freq = client_neg_freq.T
+            for k in range(16):
+                all_classes = list(range(1, 101))
+                plt.figure(figsize=(8,4))
+                plt.title('Client{} Data Distribution'.format(k), fontsize=20)
+                plt.bar(all_classes, client_pos_freq[k])
+                plt.tight_layout()
+                plt.gcf().subplots_adjust(bottom=0.40)
+                plt.savefig('C:/Users/hb/Desktop/code/3.FedBalance_mp/data_distribution/Client{}_Data_distribution.png'.format(k))
+                plt.clf()
 
-                for k in range(K):
-                    all_classes = list(range(1, 11))
-                    plt.figure(figsize=(8,4))
-                    plt.title('Client{} Data Distribution'.format(k), fontsize=20)
-                    plt.bar(all_classes, client_pos_freq[k])
-                    plt.tight_layout()
-                    plt.gcf().subplots_adjust(bottom=0.40)
-                    plt.savefig('C:/Users/hb/Desktop/code/3.FedBalance_mp/data_distribution/Client{}_Data_distribution.png'.format(k))
-                    plt.clf()
+            # Get clients' degree of data imbalances.
+            for i in range(n_nets):
+                difference_cnt = client_pos_freq[i] - client_pos_freq[i].mean()
+                for i in range(len(difference_cnt)):
+                    difference_cnt[i] = difference_cnt[i] * difference_cnt[i]        
+                for i in range(len(difference_cnt)):
+                    difference_cnt[i] = difference_cnt[i] / difference_cnt.sum()
+                # Calculate the level of imbalnce
+                difference_cnt -= difference_cnt.mean()
+                for i in range(len(difference_cnt)):
+                    difference_cnt[i] = (difference_cnt[i] * difference_cnt[i])
+                client_imbalances.append(1 / difference_cnt.sum())
 
-                # Get clients' degree of data imbalances.
-                for i in range(n_nets):
-                    difference_cnt = client_pos_freq[i] - client_pos_freq[i].mean()
-                    for i in range(len(difference_cnt)):
-                        difference_cnt[i] = difference_cnt[i] * difference_cnt[i]        
-                    for i in range(len(difference_cnt)):
-                        difference_cnt[i] = difference_cnt[i] / difference_cnt.sum()
-                    # Calculate the level of imbalnce
-                    difference_cnt -= difference_cnt.mean()
-                    for i in range(len(difference_cnt)):
-                        difference_cnt[i] = (difference_cnt[i] * difference_cnt[i])
-                    client_imbalances.append(1 / difference_cnt.sum())
+            client_imbalances = np.array(client_imbalances)
+            client_imbalances =  client_imbalances / client_imbalances.sum()
 
-                client_imbalances = np.array(client_imbalances)
-                client_imbalances =  client_imbalances / client_imbalances.sum()
+            for j in range(n_nets):
+                np.random.shuffle(idx_batch[j]) # shuffle once more
+                net_dataidx_map[j] = idx_batch[j]
 
-                for j in range(n_nets):
-                    np.random.shuffle(idx_batch[j]) # shuffle once more
-                    net_dataidx_map[j] = idx_batch[j]
+            traindata_cls_counts = record_net_data_stats(y_train, net_dataidx_map)
 
-                traindata_cls_counts = record_net_data_stats(y_train, net_dataidx_map)
+            # the number of class, shuffled indices, record of it
+            return class_num, net_dataidx_map, traindata_cls_counts, client_pos_freq, client_neg_freq, client_imbalances
 
-                # the number of class, shuffled indices, record of it
-                return class_num, net_dataidx_map, traindata_cls_counts, client_pos_freq, client_neg_freq, client_imbalances
+        
+        elif 'cifar10' in datadir:
+            long_tail = get_img_num_per_cls('10')
+            print("Long tail:", long_tail)
+            y_train, y_test = load_data(datadir)
+            n_train = y_train.shape[0]
+            n_test = y_test.shape[0]
+            class_num = len(np.unique(y_train))
+            min_size = 0
+            K = class_num
+            N = n_train
+            logging.info("N = " + str(N))
+            while min_size < 10:
+                idx_batch = [[] for _ in range(n_nets)]
+                class_proportions = []
+                class_freq = []
+                class_neg_proportions = []
+                class_neg_freq = []
+                # proportionss = np.random.dirichlet(np.repeat(alpha, n_nets))
+                
+                for k in range(K): # partition for the class k
+                    idx_k = np.where(y_train == k)[0]
+                    np.random.shuffle(idx_k)
+                    # idx_k = idx_k[:long_tail[k]]
+                    ## Balance
+                    # proportions = np.array([p * (len(idx_j) < N / n_nets) for p, idx_j in zip(proportionss, idx_batch)])
+                    # p is proportion for client(scalar)
+                    # idx_j is []
+                    # (len(idx_j) < N / n_nets) is True
+                    proportionss = np.random.dirichlet(np.repeat(alpha, n_nets))
+                    proportions = proportionss / proportionss.sum()
+                    # print(proportions)
 
+                    class_proportions.append(proportions)
+                    class_freq.append((proportions * len(idx_k)).astype(int))
+                    # print((proportions * len(idx_k)).astype(int))
+                    class_neg_proportions.append(1 - proportions)
+                    class_neg_freq.append(((1 - proportions) * len(idx_k)).astype(int))
+                    
+                    min_data = min((proportions * len(idx_k)).astype(int))
+                    # if min_data < 10 :
+                    #     min_size = 0
+                    #     print(min_data)
+                    #     break
+                    
+                    # Same as above
+                    proportions = (np.cumsum(proportions) * len(idx_k)).astype(int)[:-1]
+                    # cumsum : cumulative summation
+                    # len(idx_k) : 5000
+                    # proportion starting index
+                    idx_batch = [idx_j + idx.tolist() for idx_j, idx in zip(idx_batch, np.split(idx_k, proportions))]
+
+                    # fivide idx_k according to the proportion
+                    # idx_j = []
+                    # idx : indices for each clients
+                    # idx_batch : divides indices
+                    min_size = min([len(idx_j) for idx_j in idx_batch])
+
+            client_pos_freq = np.array(class_freq)
+            client_pos_freq = client_pos_freq.T
+            print(client_pos_freq)
+            client_neg_freq = np.array(class_neg_freq)
+            client_neg_freq = client_neg_freq.T
+
+            for k in range(K):
+                all_classes = list(range(1, 11))
+                plt.figure(figsize=(8,4))
+                plt.title('Client{} Data Distribution'.format(k), fontsize=20)
+                plt.bar(all_classes, client_pos_freq[k])
+                plt.tight_layout()
+                plt.gcf().subplots_adjust(bottom=0.40)
+                plt.savefig('C:/Users/hb/Desktop/code/3.FedBalance_mp/data_distribution/Client{}_Data_distribution.png'.format(k))
+                plt.clf()
+
+            # Get clients' degree of data imbalances.
+            for i in range(n_nets):
+                difference_cnt = client_pos_freq[i] - client_pos_freq[i].mean()
+                for i in range(len(difference_cnt)):
+                    difference_cnt[i] = difference_cnt[i] * difference_cnt[i]        
+                for i in range(len(difference_cnt)):
+                    difference_cnt[i] = difference_cnt[i] / difference_cnt.sum()
+                # Calculate the level of imbalnce
+                difference_cnt -= difference_cnt.mean()
+                for i in range(len(difference_cnt)):
+                    difference_cnt[i] = (difference_cnt[i] * difference_cnt[i])
+                client_imbalances.append(1 / difference_cnt.sum())
+
+            client_imbalances = np.array(client_imbalances)
+            client_imbalances =  client_imbalances / client_imbalances.sum()
+
+            for j in range(n_nets):
+                np.random.shuffle(idx_batch[j]) # shuffle once more
+                net_dataidx_map[j] = idx_batch[j]
+
+            traindata_cls_counts = record_net_data_stats(y_train, net_dataidx_map)
+
+            # the number of class, shuffled indices, record of it
+            return class_num, net_dataidx_map, traindata_cls_counts, client_pos_freq, client_neg_freq, client_imbalances
 
 # for centralized training
 def get_dataloader(datadir, train_bs, test_bs, dataidxs=None):
@@ -775,8 +792,27 @@ def load_dynamic_db(data_dir, partition_method, partition_alpha, client_number, 
             for r in range(n_round): 
                 lens += str(len(train_data_local_dict[i][r])) + ", "
         return train_data_local_dict
+    
+    elif 'BraTS' in data_dir:
+        for i in range(len(indices)):
+            lens = "Client {} data distribution : ".format(i+1)
+            for j in range(len(indices[0])):
+                lens += str(len(indices[i][j])) + ", "
+            print(lens)
 
+        for i in range(client_number):
+            train_data = []
+            for r in range(n_round): 
+                train_dataset = BraTS2021TrainLoader(data_dir,client_number, indices=indices[i][r])
+                train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = True)
+                train_data.append(train_loader)
+            train_data_local_dict.append(train_data)
 
+        for i in range(client_number):
+            lens = "Client {} trainloader data distribution : ".format(i+1)
+            for r in range(n_round): 
+                lens += str(len(train_data_local_dict[i][r])) + ", "
+        return train_data_local_dict
 
 def load_partition_data(data_dir, partition_method, partition_alpha, client_number, batch_size):
 
@@ -858,7 +894,6 @@ def load_partition_data(data_dir, partition_method, partition_alpha, client_numb
 
         for client_idx in range(client_number):
             dataidxs = net_dataidx_map[client_idx]
-            print(dataidxs)
             local_data_num = len(dataidxs)
             data_local_num_dict[client_idx] = local_data_num
             logging.info("client_idx = %d, local_sample_number = %d" % (client_idx, local_data_num))
@@ -875,3 +910,4 @@ def load_partition_data(data_dir, partition_method, partition_alpha, client_numb
 
     return train_data_num, test_data_num, train_data_global, test_data_global, \
            data_local_num_dict, train_data_local_dict, test_data_local_dict, class_num, client_pos_freq, client_neg_freq, client_imbalances
+

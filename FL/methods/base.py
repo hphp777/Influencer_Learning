@@ -6,6 +6,8 @@ import numpy as np
 import os
 from sklearn.metrics import roc_auc_score,  roc_curve
 from datetime import datetime
+import torch.nn.functional as F
+from utils.metrics import multiclass_dice_coeff
 
 class Base_Client():
     def __init__(self, client_dict, args):
@@ -71,13 +73,18 @@ class Base_Client():
                     images, labels = images.to(self.device), labels.to(self.device)
                     self.optimizer.zero_grad()
 
-                    if 'NIH' in self.dir or 'CheXpert' in self.dir:
-                        out = self.model(images)  
-                        loss = self.criterion(out, labels.type(torch.FloatTensor).to(self.device))
-                    else:
-                        log_probs = self.model(images)
-                        loss = self.criterion(log_probs, labels.type(torch.LongTensor).to(self.device))
-                    
+                    if self.args.task == "classification":
+                        if 'NIH' in self.dir or 'CheXpert' in self.dir:
+                            out = self.model(images)  
+                            loss = self.criterion(out, labels.type(torch.FloatTensor).to(self.device))
+                        else:
+                            log_probs = self.model(images)
+                            loss = self.criterion(log_probs, labels.type(torch.LongTensor).to(self.device))
+                    elif self.args.task == "segmentation":
+                        masks_pred = self.model(images)
+                        true_masks = labels.squeeze(1).type(torch.LongTensor)
+                        loss = self.criterion(F.softmax(masks_pred.to(self.device), dim=1).float(), true_masks.to(self.device)) 
+
                     loss.backward()
                     self.optimizer.step()
                     batch_loss.append(loss.item())
@@ -88,13 +95,18 @@ class Base_Client():
                     images, labels = images.to(self.device), labels.to(self.device)
                     self.optimizer.zero_grad()
 
-                    if 'NIH' in self.dir or 'CheXpert' in self.dir:
-                        out = self.model(images)  
-                        loss = self.criterion(out, labels.type(torch.FloatTensor).to(self.device))
-                    else:
-                        log_probs = self.model(images)
-                        loss = self.criterion(log_probs, labels.type(torch.LongTensor).to(self.device))
-                    
+                    if self.args.task == "classification":
+                        if 'NIH' in self.dir or 'CheXpert' in self.dir:
+                            out = self.model(images)  
+                            loss = self.criterion(out, labels.type(torch.FloatTensor).to(self.device))
+                        else:
+                            log_probs = self.model(images)
+                            loss = self.criterion(log_probs, labels.type(torch.LongTensor).to(self.device))
+                    elif self.args.task == "segmentation":
+                        masks_pred = self.model(images)
+                        true_masks = labels.squeeze(1).type(torch.LongTensor)
+                        loss = self.criterion(F.softmax(masks_pred.to(self.device), dim=1).float(), true_masks.to(self.device)) 
+
                     loss.backward()
                     self.optimizer.step()
                     batch_loss.append(loss.item())
@@ -113,9 +125,15 @@ class Base_Client():
         test_correct = 0.0
         test_sample_number = 0.0
         val_loader_examples_num = len(self.test_dataloader.dataset)
-        probs = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
-        gt    = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
-        k=0
+        if self.args.task == 'classification':
+            probs = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
+            gt    = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
+            k=0
+        elif self.args.task == 'segmentation':
+            dice_score = 0
+            precision = 0
+            recall = 0
+            probs = []
         with torch.no_grad():
             for batch_idx, (x, target) in enumerate(self.test_dataloader):
                 target = target.type(torch.LongTensor)
@@ -123,35 +141,53 @@ class Base_Client():
                 target = target.to(self.device)
                 out = self.model(x)
                 
-                if 'NIH' in self.dir or 'CheXpert' in self.dir:
-                    probs[k: k + out.shape[0], :] = out.cpu()
-                    gt[   k: k + out.shape[0], :] = target.cpu()
-                    k += out.shape[0] 
-                    preds = np.round(sigmoid(out).cpu().detach().numpy())
-                    targets = target.cpu().detach().numpy()
-                    test_sample_number += len(targets)*self.num_classes
-                    test_correct += (preds == targets).sum()
-                else:
-                    _, predicted = torch.max(out, 1)
-                    correct = predicted.eq(target).sum()
-                    test_correct += correct.item()
-                    # test_loss += loss.item() * target.size(0)
-                    test_sample_number += target.size(0)
+                if self.args.task == "classification":
+                    if 'NIH' in self.dir or 'CheXpert' in self.dir:
+                        probs[k: k + out.shape[0], :] = out.cpu()
+                        gt[   k: k + out.shape[0], :] = target.cpu()
+                        k += out.shape[0] 
+                        preds = np.round(sigmoid(out).cpu().detach().numpy())
+                        targets = target.cpu().detach().numpy()
+                        test_sample_number += len(targets)*self.num_classes
+                        test_correct += (preds == targets).sum()
+                    else:
+                        _, predicted = torch.max(out, 1)
+                        correct = predicted.eq(target).sum()
+                        test_correct += correct.item()
+                        # test_loss += loss.item() * target.size(0)
+                        test_sample_number += target.size(0)
+                    acc = (test_correct / test_sample_number)*100
+
+                elif self.args.task == 'segmentation':
+                    mask_pred = F.one_hot(out.argmax(dim=1), 5).permute(0, 3, 1, 2).float()
+                    mask_true = F.one_hot(target, 5).float()
+                    mask_true = mask_true.squeeze(1).permute(0, 3, 1, 2)
+                    probs += out.cpu().numpy().tolist()
+                    dice_score += multiclass_dice_coeff(mask_pred, mask_true, reduce_batch_first=False)
+
             
-            acc = (test_correct / test_sample_number)*100
-            if self.args.dataset == 'NIH' or self.args.dataset == 'CheXpert':
-                try:
-                    auc = roc_auc_score(gt, probs)
-                except:
-                    auc = 0
-                logging.info("************* Client {} AUC = {:.2f},  Acc = {:.2f}**************".format(self.client_index, auc, acc))
+            if self.args.task == "classification":
+                if self.args.dataset == 'NIH' or self.args.dataset == 'CheXpert':
+                    try:
+                        auc = roc_auc_score(gt, probs)
+                    except:
+                        auc = 0
+                    logging.info("************* Client {} AUC = {:.2f},  Acc = {:.2f}**************".format(self.client_index, auc, acc))
+                    f = open(self.result_dir + "/participants{}.txt".format(client_idx+1), "a")
+                    f.write(str(auc) + "\n")
+                    f.close()
+                    return auc
+                else:
+                    logging.info("************* Client {} Acc = {:.2f} **************".format(self.client_index, acc))
+                    return acc
+            elif self.args.task == "segmentation":
+                dice_score /= len(self.test_dataloader)
+                recall /= len(self.test_dataloader)
+                precision /= len(self.test_dataloader)
+                logging.info("Client {} test result: Dice Score = {:.2f}, precision = {:.2f}, recall = {:.2f}*".format(self.client_index+1, dice_score, precision, recall))
                 f = open(self.result_dir + "/participants{}.txt".format(client_idx+1), "a")
-                f.write(str(auc) + "\n")
+                f.write(str(dice_score.item()) + "\n")
                 f.close()
-                return auc
-            else:
-                logging.info("************* Client {} Acc = {:.2f} **************".format(self.client_index, acc))
-                return acc
     
 class Base_Server():
     def __init__(self,server_dict, args):

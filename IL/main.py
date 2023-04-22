@@ -49,7 +49,7 @@ def add_args(parser):
     parser.add_argument('--partition_alpha', type=float, default=0.5, metavar='PA',
                         help='alpha value for Dirichlet distribution partitioning of data(default: 0.5)')
 
-    parser.add_argument('--client_number', type=int, default=2, metavar='NN',
+    parser.add_argument('--client_number', type=int, default=5, metavar='NN',
                         help='number of clients in the FL system')
 
     parser.add_argument('--batch_size', type=int, default=32, metavar='N',
@@ -69,13 +69,13 @@ def add_args(parser):
 
     parser.add_argument('--wd', help='weight decay parameter;', type=float, default=0.0001)
 
-    parser.add_argument('--epochs', type=int, default=1, metavar='EP',
+    parser.add_argument('--epochs', type=int, default=10, metavar='EP',
                         help='how many epochs will be trained locally per round')
     
     parser.add_argument('--influencing_epochs', type=int, default=2, metavar='EP',
                         help='how many epochs will be trained in the distillation(influencing) step')
 
-    parser.add_argument('--influencing_round', type=int, default=20,
+    parser.add_argument('--influencing_round', type=int, default=30,
                         help='how many rounds of communications are conducted')
 
     parser.add_argument('--pretrained', action='store_true', default=False,  
@@ -97,7 +97,7 @@ def add_args(parser):
     return args
 
 # Setup Functions
-def set_random_seed(seed=1):
+def set_random_seed(seed=1996):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -165,8 +165,8 @@ if __name__ == "__main__":
         qualification_data = torch.utils.data.DataLoader(NIHQualificationDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
         class_num = 14
     elif args.dataset == 'BraTS2021':
-        test_data = torch.utils.data.DataLoader(BraTS2021TestLoader(args.data_dir))
-        qualification_data = torch.utils.data.DataLoader(BraTS2021QualificationLoader(args.data_dir))
+        test_data = torch.utils.data.DataLoader(BraTS2021TestLoader(args.data_dir), batch_size = 32, shuffle = not True)
+        qualification_data = torch.utils.data.DataLoader(BraTS2021QualificationLoader(args.data_dir), batch_size = 32, shuffle = not True)
         class_num = 5
 
     ######################################################

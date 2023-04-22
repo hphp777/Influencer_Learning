@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from datetime import datetime
-from utils.metrics import dice_coeff, multiclass_dice_coeff
+from utils.metrics import dice_coeff, multiclass_dice_coeff, SegmentationMetrics
 
 class Participant():
 
@@ -167,11 +167,10 @@ class Participant():
                     acc = (test_correct / test_sample_number)*100
                 elif self.args.task == 'segmentation':
                     mask_pred = F.one_hot(out.argmax(dim=1), 5).permute(0, 3, 1, 2).float()
-                    print(mask_pred.size())
-                    target = F.one_hot(target, 5).permute(0, 3, 1, 2).float()
-                    print(target.size())
-                    probs.append(out.cpu())
-                    dice_score += multiclass_dice_coeff(mask_pred, target, reduce_batch_first=False)
+                    mask_true = F.one_hot(target, 5).float()
+                    mask_true = mask_true.squeeze(1).permute(0, 3, 1, 2)
+                    probs += out.cpu().numpy().tolist()
+                    dice_score += multiclass_dice_coeff(mask_pred, mask_true, reduce_batch_first=False)
 
 
             if self.args.task == 'classification':
@@ -187,15 +186,15 @@ class Participant():
                     logging.info("*************  Qualification Score (Client {}) : Acc = {:.2f} **************".format(self.client_index, acc))
                     return acc
             elif self.args.task == 'segmentation':
-                probs = np.array(probs)
                 dice_score /= len(self.qualification_dataloader)
                 logging.info("* Qualification Score of participant {} : Dice Score = {:.2f}*".format(self.client_index+1, dice_score))
                 return dice_score, probs
 
     def influencing (self, max_idx, args):
 
-        Loss = torch.nn.KLDivLoss(reduction="none")
+        Loss = torch.nn.KLDivLoss(reduction='batchmean')        
         logits_influencer = Variable(torch.Tensor(self.distill_logits[max_idx]).to(self.device), requires_grad=True)
+        # logits_influencer = Variable(self.distill_logits[max_idx].to(self.device), requires_grad=True)
         alpha = args.alpha
         T = args.temperature
         sigmoid = nn.Sigmoid()
@@ -234,8 +233,8 @@ class Participant():
                         KD_loss = KD_loss.sum()
                         # print("Sum: ", KD_loss)
                     elif self.args.task == "segmentation":
-                        KD_loss = nn.KLDivLoss()(F.log_softmax(logits_follower[i]/T, dim=1),
-                             F.softmax(logits_influencer[i]/T, dim=1)) * (alpha * T * T)
+                        KD_loss = nn.KLDivLoss()(logSigmoid(logits_follower[i]/T),
+                             sigmoid(logits_influencer[i]/T)) * (10 * T * T)
                     
                     KD_loss.backward()
                     self.optimizer.step()
@@ -320,6 +319,8 @@ class Participant():
         test_correct = 0.0
         test_sample_number = 0.0
         val_loader_examples_num = len(self.test_dataloader.dataset)
+        metric = SegmentationMetrics()
+        
 
         if self.args.task == 'classification':
             probs = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
@@ -328,6 +329,8 @@ class Participant():
         elif self.args.task == 'segmentation':
             probs = []
             dice_score = 0
+            recall = 0
+            precision = 0
 
         with torch.no_grad():
 
@@ -358,9 +361,14 @@ class Participant():
                     acc = (test_correct / test_sample_number)*100
 
                 elif self.args.task == "segmentation":
-                    mask_pred = F.one_hot(out.argmax(dim=1), 4).permute(0, 3, 1, 2).float()
-                    probs.append(out.cpu())
-                    dice_score += multiclass_dice_coeff(mask_pred[:, 1:, ...], target[:, 1:, ...], reduce_batch_first=False)
+                    mask_pred = F.one_hot(out.argmax(dim=1), 5).permute(0, 3, 1, 2).float() # 알아서 2번째 dimension을 one hot 해줌
+                    mask_true = F.one_hot(target, 5).float()
+                    mask_true = mask_true.squeeze(1).permute(0, 3, 1, 2)
+                    dice_score += multiclass_dice_coeff(mask_pred, mask_true, reduce_batch_first=False)
+                    temp_precision, temp_recall = metric.calculate_multi_metrics(mask_true, mask_pred,5)
+                    recall += temp_recall
+                    precision += temp_precision
+
             
             torch.save(self.model_weights[client_idx], self.model_dir + "/participant{}.pth".format(client_idx))
 
@@ -382,10 +390,12 @@ class Participant():
                     return acc
             elif self.args.task == 'segmentation':
                 probs = np.array(probs)
-                dice_score /= len(self.qualification_dataloader)
-                logging.info("Participant {} test result: Dice Score = {:.2f}*".format(self.client_index+1, dice_score))
+                dice_score /= len(self.test_dataloader)
+                recall /= len(self.test_dataloader)
+                precision /= len(self.test_dataloader)
+                logging.info("Participant {} test result: Dice Score = {:.2f}, precision = {:.2f}, recall = {:.2f}*".format(self.client_index+1, dice_score, precision, recall))
                 f = open(self.result_dir + "/participants{}.txt".format(client_idx+1), "a")
-                f.write(str(auc) + "\n")
+                f.write(str(dice_score.item()) + "\n")
                 f.close()
-                return dice_score, probs
+                return dice_score
     
