@@ -28,7 +28,7 @@ import torch.utils.data as data
 import torchvision.transforms as transforms
 from data_preprocessing import config
 from data_preprocessing.datasets import CIFAR_truncated, ImageFolder_custom, NIHTestDataset, NIHTrainDataset, ChexpertTrainDataset, ChexpertTestDataset
-from data_preprocessing.datasets import BraTS2021TrainLoader, BraTS2021QualificationLoader, BraTS2021TestLoader
+from data_preprocessing.datasets import BraTS2021TrainLoader, BraTS2021TestLoader
 
 logging.basicConfig()
 logger = logging.getLogger()
@@ -485,7 +485,7 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
                 total_num = 124000
                 overall_batch_idxs = []
                 for n in range(n_nets):
-                    overall_batch_idxs.append(np.random.permutation(total_num)[:int(0.2*len(np.random.permutation(total_num)))])
+                    overall_batch_idxs.append(np.random.permutation(total_num)[:int(0.5*len(np.random.permutation(total_num)))])
             
             idx_batch_temp = []
             final_idx_batch = []

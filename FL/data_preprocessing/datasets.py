@@ -611,60 +611,6 @@ class BraTS2021TrainLoader(Dataset): # custom dataset
 
         return images, masks
     
-class BraTS2021QualificationLoader(Dataset): # custom dataset
-
-    def BraTS2021loader(self, index): # index = number
-        
-        brain = np.load(self.dir + "/imgs/" + str(index) + ".npy")
-        mask = np.load(self.dir + "/labels/" + str(index) + ".npy")                  
-
-        mean = np.mean(brain)
-        std = np.std(brain)
-
-        if mean == 0 or std == 0 :
-            transform1 = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.ToTensor(),
-            ])
-        else :
-            transform1 = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std, inplace=False),
-            ]) 
-        
-
-        transform2 = transforms.Compose([
-        transforms.ToPILImage(),
-        transforms.ToTensor(),
-        ])
-
-        kidney = transform1(brain)
-        mask = transform2(mask)
-
-        # fig, (ax1, ax2) = plt.subplots(1,2, figsize = (12, 6))
-        # ax1.imshow(kidney[0])
-        # ax1.set_title('input')
-        # ax2.imshow(mask[0])
-        # ax2.set_title('mask')
-        # plt.show()
-
-        return kidney, mask
-
-    def __init__(self, dir):
-
-        self.indices = list(range(77500))
-        random.shuffle(self.indices)
-        self.indices = self.indices[:int(0.1 * len(self.indices))]
-        self.dir = dir + "/Qualification"
-
-    def __len__(self):
-        return len(self.indices)
-
-    def __getitem__(self, index): 
-        images, masks= self.BraTS2021loader(self.indices[index])
-
-        return images, masks
     
 class BraTS2021TestLoader(Dataset): # custom dataset
 
@@ -710,7 +656,7 @@ class BraTS2021TestLoader(Dataset): # custom dataset
         
         self.indices = list(range(77500))
         random.shuffle(self.indices)
-        self.indices = self.indices[:int(0.1 * len(self.indices))]
+        self.indices = self.indices[:int(0.5 * len(self.indices))]
         self.dir = dir + "/Test"
 
     def __len__(self):

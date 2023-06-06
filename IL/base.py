@@ -9,7 +9,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from datetime import datetime
-from utils.metrics import dice_coeff, multiclass_dice_coeff, SegmentationMetrics
+from utils.metrics import dice_coeff, multiclass_dice_coeff, SegmentationMetrics, CriterionPixelWise
+import gc
 
 class Participant():
 
@@ -60,7 +61,8 @@ class Participant():
             
             self.client_index = client_idx
             self.train(client_idx, inf_round)
-            self.qulification_scores[client_idx], self.distill_logits[client_idx] = self.qulification(client_idx)
+            self.qulification_scores[client_idx] = self.qualification_train(client_idx)
+            
             
             if self.args.client_sample < 1.0 and self.train_dataloader._iterator is not None:
                 self.train_dataloader._iterator._shutdown_workers()
@@ -68,11 +70,41 @@ class Participant():
         # Step2 : Influencing
         logging.info("Step 2. Influencing *****************************************************************")
         self.max_idx = self.qulification_scores.index(max(self.qulification_scores))
-        # self.qulification_scores[self.max_idx] = 0
-        # self.second_max_idx = self.qulification_scores.index(max(self.qulification_scores))
         logging.info("Selected Influencer : paticipant {}".format(self.max_idx+1))
-        # self.ensemble_influencing(self.max_idx, self.second_max_idx, self.args)
-        self.influencing(self.max_idx,self.args)
+        
+        # cascading influencing
+        if self.args.task == "segmentation":
+            
+            self.cascading_step = 30
+            
+            for s in range(self.cascading_step):
+                
+                logging.info("Step 2. Influencing step {} *****************************************************".format(s))
+                start_index = s * int(len(self.qualification_dataloader) / self.cascading_step)
+                self.distill_logits = [0] * self.num_client
+                
+                for c in range(self.num_client):
+                    self.distill_logits[c] = self.cascading_qulification(c, start_index)
+                
+                if c is not self.max_idx:
+                    self.influencing(self.max_idx,self.args)
+
+                del self.distill_logits
+                gc.collect()
+
+            if self.args.num_of_influencer == 2:
+                self.qulification_scores[self.max_idx] = 0
+                self.second_max_idx = self.qulification_scores.index(max(self.qulification_scores))
+                # self.ensemble_influencing(self.max_idx, self.second_max_idx, self.args)
+
+        elif self.args.task == "classification":
+            
+            self.influencing(self.max_idx,self.args)
+            
+            if self.args.num_of_influencer == 2:
+                self.qulification_scores[self.max_idx] = 0
+                self.second_max_idx = self.qulification_scores.index(max(self.qulification_scores))
+                self.influencing(self.second_max_idx,self.args)
 
         logging.info("Step 3. Evaluation ******************************************************************")
         for client_idx in range(self.num_client):
@@ -109,7 +141,8 @@ class Participant():
                 elif self.args.task == "segmentation":
                     masks_pred = self.model(images)
                     true_masks = labels.squeeze(1).type(torch.LongTensor)
-                    loss = self.criterion(F.softmax(masks_pred.to(self.device), dim=1).float(), true_masks.to(self.device)) 
+                    # loss = self.criterion(F.softmax(masks_pred.to(self.device), dim=1).float(), true_masks.to(self.device)) 
+                    loss = self.criterion(masks_pred.to(self.device), true_masks.to(self.device))
                 
                 loss.backward()
                 self.optimizer.step()
@@ -121,6 +154,98 @@ class Participant():
         
         self.model_weights[client_idx] = self.model.cpu().state_dict()
 
+    def qualification_train(self, client_idx):
+
+        self.model.load_state_dict(self.model_weights[client_idx])
+        self.model.to(self.device)
+        self.model.train()
+        epoch_loss = []
+        sigmoid = torch.nn.Sigmoid()
+        test_correct = 0.0
+        test_sample_number = 0.0
+        # val_loader_examples_num = len(self.qualification_dataloader.dataset)
+        val_loader_examples_num = len(self.qualification_dataloader)
+
+        if self.args.task == 'classification':
+            probs = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
+            gt    = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
+            k=0
+        elif self.args.task == 'segmentation':
+            dice_score = 0
+            probs = []
+
+        logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.qualification_dataloader) * 32))
+        
+
+        batch_loss = []
+        for batch_idx, (images, labels) in enumerate(self.qualification_dataloader):
+            # logging.info(images.shape)
+            images, labels = images.to(self.device), labels.to(self.device)
+            # print(images.size())
+            self.optimizer.zero_grad()
+
+            if self.args.task == 'classification':
+                if 'NIH' in self.dir or 'CheXpert' in self.dir:
+                    out = self.model(images)  
+                    loss = self.criterion(out, labels.type(torch.FloatTensor).to(self.device))
+                else:
+                    log_probs = self.model(images)
+                    loss = self.criterion(log_probs, labels.type(torch.LongTensor).to(self.device))
+
+            elif self.args.task == "segmentation":
+                masks_pred = self.model(images.unsqueeze(0))
+                true_masks = labels.squeeze(1).type(torch.LongTensor)
+                # loss = self.criterion(F.softmax(masks_pred.to(self.device), dim=1).float(), true_masks.to(self.device)) 
+                loss = self.criterion(masks_pred.to(self.device), true_masks.to(self.device))
+
+            if self.args.task == 'classification':
+                if 'NIH' in self.dir or 'CheXpert' in self.dir:
+                    probs[k: k + out.shape[0], :] = out.cpu()
+                    gt[   k: k + out.shape[0], :] = labels.cpu()
+                    k += out.shape[0] 
+                    preds = np.round(sigmoid(out).cpu().detach().numpy())
+                    targets = labels.cpu().detach().numpy()
+                    test_sample_number += len(targets)*self.num_classes
+                    test_correct += (preds == targets).sum()
+                else:
+                    _, predicted = torch.max(out, 1)
+                    correct = predicted.eq(labels).sum()
+                    test_correct += correct.item()
+                    # test_loss += loss.item() * target.size(0)
+                    test_sample_number += labels.size(0)
+                acc = (test_correct / test_sample_number)*100
+            elif self.args.task == 'segmentation':
+                mask_pred = F.one_hot(masks_pred.argmax(dim=1), 5).permute(0, 3, 1, 2).float()
+                mask_true = F.one_hot(true_masks, 5).float()
+                mask_true = mask_true.squeeze(1).permute(0, 3, 1, 2)
+                # probs += out.cpu().numpy().tolist()
+                dice_score += multiclass_dice_coeff(mask_pred.to(self.device), mask_true.to(self.device), reduce_batch_first=False)
+            
+            loss.backward()
+            self.optimizer.step()
+            batch_loss.append(loss.item())
+
+        self.model_weights[client_idx] = self.model.cpu().state_dict()
+        
+        if self.args.task == 'classification':
+            if self.args.dataset == 'NIH' or self.args.dataset == 'CheXpert':
+                try:
+                    auc = roc_auc_score(gt, probs)
+                except:
+                    auc = 0
+                logging.info("* Qualification Score of participant {} : AUC = {:.2f}*".format(self.client_index+1, auc, acc))
+                    # return qualification score, logits
+                return auc, probs
+            else:
+                logging.info("*************  Qualification Score (Client {}) : Acc = {:.2f} **************".format(self.client_index, acc))
+                return acc
+        elif self.args.task == 'segmentation':
+            dice_score /= len(self.qualification_dataloader)
+            logging.info("* Qualification Score of participant {} : Dice Score = {:.2f}*".format(self.client_index+1, dice_score))
+            return dice_score
+        
+        
+
 
     def qulification(self, client_idx):
 
@@ -130,7 +255,8 @@ class Participant():
         sigmoid = torch.nn.Sigmoid()
         test_correct = 0.0
         test_sample_number = 0.0
-        val_loader_examples_num = len(self.qualification_dataloader.dataset)
+        # val_loader_examples_num = len(self.qualification_dataloader.dataset)
+        val_loader_examples_num = len(self.qualification_dataloader)
 
         if self.args.task == 'classification':
             probs = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
@@ -143,6 +269,79 @@ class Participant():
         with torch.no_grad():
 
             for batch_idx, (x, target) in enumerate(self.qualification_dataloader):
+
+                target = target.type(torch.LongTensor)
+                x = x.unsqueeze(0)
+                x = x.to(self.device)
+                target = target.to(self.device)
+                out = self.model(x)
+                
+                if self.args.task == 'classification':
+                    if 'NIH' in self.dir or 'CheXpert' in self.dir:
+                        probs[k: k + out.shape[0], :] = out.cpu()
+                        gt[   k: k + out.shape[0], :] = target.cpu()
+                        k += out.shape[0] 
+                        preds = np.round(sigmoid(out).cpu().detach().numpy())
+                        targets = target.cpu().detach().numpy()
+                        test_sample_number += len(targets)*self.num_classes
+                        test_correct += (preds == targets).sum()
+                    else:
+                        _, predicted = torch.max(out, 1)
+                        correct = predicted.eq(target).sum()
+                        test_correct += correct.item()
+                        # test_loss += loss.item() * target.size(0)
+                        test_sample_number += target.size(0)
+                    acc = (test_correct / test_sample_number)*100
+                elif self.args.task == 'segmentation':
+                    mask_pred = F.one_hot(out.argmax(dim=1), 5).permute(0, 3, 1, 2).float()
+                    mask_true = F.one_hot(target, 5).float()
+                    mask_true = mask_true.squeeze(1).permute(0, 3, 1, 2)
+                    # probs += out.cpu().numpy().tolist()
+                    dice_score += multiclass_dice_coeff(mask_pred, mask_true, reduce_batch_first=False)
+
+
+            if self.args.task == 'classification':
+                if self.args.dataset == 'NIH' or self.args.dataset == 'CheXpert':
+                    try:
+                        auc = roc_auc_score(gt, probs)
+                    except:
+                        auc = 0
+                    logging.info("* Qualification Score of participant {} : AUC = {:.2f}*".format(self.client_index+1, auc, acc))
+                    # return qualification score, logits
+                    return auc, probs
+                else:
+                    logging.info("*************  Qualification Score (Client {}) : Acc = {:.2f} **************".format(self.client_index, acc))
+                    return acc
+            elif self.args.task == 'segmentation':
+                dice_score /= len(self.qualification_dataloader)
+                logging.info("* Qualification Score of participant {} : Dice Score = {:.2f}*".format(self.client_index+1, dice_score))
+                return dice_score
+
+    def cascading_qulification(self, client_idx, start_index):
+
+        self.model.load_state_dict(self.model_weights[client_idx])
+        self.model.to(self.device)
+        self.model.eval()
+        sigmoid = torch.nn.Sigmoid()
+        test_correct = 0.0
+        test_sample_number = 0.0
+        # val_loader_examples_num = len(self.qualification_dataloader.dataset)
+        val_loader_examples_num = len(self.qualification_dataloader)
+
+        if self.args.task == 'classification':
+            probs = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
+            gt    = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
+            k=0
+        elif self.args.task == 'segmentation':
+            dice_score = 0
+            probs = []
+
+        with torch.no_grad():
+
+            for i in range(start_index, start_index + int(val_loader_examples_num / self.cascading_step)):
+                x, target = self.qualification_dataloader[i]
+                x = x.unsqueeze(0)
+            # for batch_idx, (x, target) in enumerate(self.qualification_dataloader):
 
                 target = target.type(torch.LongTensor)
                 x = x.to(self.device)
@@ -186,13 +385,14 @@ class Participant():
                     logging.info("*************  Qualification Score (Client {}) : Acc = {:.2f} **************".format(self.client_index, acc))
                     return acc
             elif self.args.task == 'segmentation':
-                dice_score /= len(self.qualification_dataloader)
-                logging.info("* Qualification Score of participant {} : Dice Score = {:.2f}*".format(self.client_index+1, dice_score))
-                return dice_score, probs
+                dice_score /= int(val_loader_examples_num / self.cascading_step)
+                logging.info("* Qualification Score of participant {} : Dice Score = {:.2f}*".format(client_idx+1, dice_score))
+                return probs
 
     def influencing (self, max_idx, args):
 
-        Loss = torch.nn.KLDivLoss(reduction='batchmean')        
+        Loss = torch.nn.KLDivLoss(reduction='batchmean')  
+        Loss_segmentation = CriterionPixelWise()    
         logits_influencer = Variable(torch.Tensor(self.distill_logits[max_idx]).to(self.device), requires_grad=True)
         # logits_influencer = Variable(self.distill_logits[max_idx].to(self.device), requires_grad=True)
         alpha = args.alpha
@@ -233,8 +433,9 @@ class Participant():
                         KD_loss = KD_loss.sum()
                         # print("Sum: ", KD_loss)
                     elif self.args.task == "segmentation":
-                        KD_loss = nn.KLDivLoss()(logSigmoid(logits_follower[i]/T),
-                             sigmoid(logits_influencer[i]/T)) * (10 * T * T)
+                        KD_loss = Loss_segmentation.forward(logits_follower[i], logits_influencer[i])
+                        # KD_loss = nn.KLDivLoss()(F.log_softmax(logits_follower[i]/T, dim=1),
+                        #     F.softmax(logits_influencer[i]/T, dim=1)) * (10 * T * T)
                     
                     KD_loss.backward()
                     self.optimizer.step()
@@ -318,19 +519,21 @@ class Participant():
         sigmoid = torch.nn.Sigmoid()
         test_correct = 0.0
         test_sample_number = 0.0
-        val_loader_examples_num = len(self.test_dataloader.dataset)
-        metric = SegmentationMetrics()
-        
+        val_loader_examples_num = len(self.test_dataloader.dataset)        
 
         if self.args.task == 'classification':
             probs = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
             gt    = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
             k=0
         elif self.args.task == 'segmentation':
-            probs = []
+            metric = SegmentationMetrics(ignore_background=True)
+            # matrix = np.zeros((4, 4))
             dice_score = 0
-            recall = 0
             precision = 0
+            recall = 0
+            dice2_score = 0
+            pixel_acc = 0
+            probs = []
 
         with torch.no_grad():
 
@@ -361,13 +564,15 @@ class Participant():
                     acc = (test_correct / test_sample_number)*100
 
                 elif self.args.task == "segmentation":
-                    mask_pred = F.one_hot(out.argmax(dim=1), 5).permute(0, 3, 1, 2).float() # 알아서 2번째 dimension을 one hot 해줌
+                    mask_pred = F.one_hot(out.argmax(dim=1), 5).permute(0, 3, 1, 2).float()
                     mask_true = F.one_hot(target, 5).float()
                     mask_true = mask_true.squeeze(1).permute(0, 3, 1, 2)
-                    dice_score += multiclass_dice_coeff(mask_pred, mask_true, reduce_batch_first=False)
-                    temp_precision, temp_recall = metric.calculate_multi_metrics(mask_true, mask_pred,5)
+                    dice_score += multiclass_dice_coeff(mask_pred, mask_true, reduce_batch_first=True)
+                    temp_pixel_acc, temp_dice2_score, temp_precision, temp_recall, temp_mat = metric.calculate_multi_metrics(mask_true, mask_pred,5)
                     recall += temp_recall
                     precision += temp_precision
+                    dice2_score += temp_dice2_score
+                    pixel_acc += temp_pixel_acc
 
             
             torch.save(self.model_weights[client_idx], self.model_dir + "/participant{}.pth".format(client_idx))
@@ -389,13 +594,16 @@ class Participant():
                     logging.info("************* Client {} Acc = {:.2f} **************".format(client_idx, acc))
                     return acc
             elif self.args.task == 'segmentation':
-                probs = np.array(probs)
                 dice_score /= len(self.test_dataloader)
                 recall /= len(self.test_dataloader)
                 precision /= len(self.test_dataloader)
-                logging.info("Participant {} test result: Dice Score = {:.2f}, precision = {:.2f}, recall = {:.2f}*".format(self.client_index+1, dice_score, precision, recall))
+                dice2_score /=len(self.test_dataloader)
+                pixel_acc /= len(self.test_dataloader)
+                
+                logging.info("Client {} test result: Dice Score(w b) = {:.2f}, Dice Score(w/o b): {:.2f}, Pixel acc = {:.2f}, precision = {:.2f}, recall = {:.2f}*".format(client_idx+1, dice_score, dice2_score, pixel_acc, precision, recall))
+                # logging.info("Client {} test result: Dice Score(w b) = {:.2f}, Dice Score(w/o b): {:.2f}, Pixel acc = {:.2f}, precision = {:.2f}, recall = {:.2f}*".format(self.client_index+1, dice_score, mat_dice, mat_pixel_acc, mat_precision, mat_recall))
                 f = open(self.result_dir + "/participants{}.txt".format(client_idx+1), "a")
-                f.write(str(dice_score.item()) + "\n")
+                f.write("{}, {}, {}, {}, {}".format(str(dice_score.item()), str(dice2_score), str(pixel_acc), str(precision), str(recall)) + "\n")
                 f.close()
                 return dice_score
     

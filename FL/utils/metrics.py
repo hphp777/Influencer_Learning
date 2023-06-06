@@ -10,8 +10,8 @@ def dice_coeff(input: Tensor, target: Tensor, reduce_batch_first: bool = False, 
         raise ValueError(f'Dice: asked to reduce batch but got tensor without batch dimension (shape {input.shape})')
 
     if input.dim() == 2 or reduce_batch_first:
-        inter = torch.dot(input.reshape(-1), target.reshape(-1))
-        sets_sum = torch.sum(input) + torch.sum(target)
+        inter = torch.dot(input.reshape(-1), target.reshape(-1)) # tp
+        sets_sum = torch.sum(input) + torch.sum(target) # tp + tn
         if sets_sum.item() == 0:
             sets_sum = 2 * inter
 
@@ -23,7 +23,7 @@ def dice_coeff(input: Tensor, target: Tensor, reduce_batch_first: bool = False, 
             dice += dice_coeff(input[i, ...], target[i, ...])
         return dice / input.shape[0]
 
-def multiclass_dice_coeff(input: Tensor, target: Tensor, reduce_batch_first: bool = False, epsilon=1e-6):
+def multiclass_dice_coeff(input: Tensor, target: Tensor, reduce_batch_first: bool = True, epsilon=1e-6):
     # Average of Dice coefficient for all classes
     assert input.size() == target.size()
     dice = 0
@@ -43,9 +43,11 @@ class SegmentationMetrics(object):
     def _get_class_data(self, gt_onehot, pred, class_num):
         # perform calculation on a batch
         # for precise result in a single image, plz set batch size to 1
-        matrix = np.zeros((3, class_num))
+        matrix = np.zeros((4, class_num))
         # gt_onehot = gt_onehot.cpu().numpy()
         # pred = pred.cpu.numpy()
+
+        # print("size: ", gt_onehot.size(), pred.size())
 
         # calculate tp, fp, fn per class
         for i in range(class_num):
@@ -54,14 +56,21 @@ class SegmentationMetrics(object):
             # gt shape: (N, H, W), binary array where 0 denotes negative and 1 denotes positive
             class_gt = gt_onehot[:, i, :, :]
 
-            pred_flat = class_pred.contiguous().view(-1, )  # shape: (N * H * W, )
-            gt_flat = class_gt.contiguous().view(-1, )  # shape: (N * H * W, )
+            # contiguous() : way of saving elements in memory (row) 
+            # .view(-1, ) : flatten the tensor
+            pred_flat = class_pred.reshape(-1)  # shape: (N * H * W, )
+            # print(pred_flat.cpu().numpy().tolist())
+            gt_flat = class_gt.reshape(-1)  # shape: (N * H * W, )
+            # print(gt_flat.cpu().numpy().tolist())
+            # print("size: ", gt_flat.size(), pred_flat.size())
 
-            tp = torch.sum(gt_flat * pred_flat)
-            fp = torch.sum(pred_flat) - tp
-            fn = torch.sum(gt_flat) - tp
+            tp = torch.dot(gt_flat, pred_flat)
+            fp = torch.sum(pred_flat) - tp # real : 0, output : 1
+            fn = torch.sum(gt_flat) - tp  # real : 1, output : 0
+            tn = len(pred_flat) - (tp + fp + fn)
 
-            matrix[:, i] = tp.item(), fp.item(), fn.item()
+            matrix[:, i] = tp.item(), fp.item(), fn.item(), tn.item() # add by column
+            # print(tp, tn, fp, fn)
 
         return matrix
 
@@ -71,18 +80,19 @@ class SegmentationMetrics(object):
         if self.ignore:
             matrix = matrix[:, 1:]
 
-        # tp = np.sum(matrix[0, :])
-        # fp = np.sum(matrix[1, :])
-        # fn = np.sum(matrix[2, :])
+        tp = np.sum(matrix[0, :])
+        fp = np.sum(matrix[1, :])
+        fn = np.sum(matrix[2, :])
+        tn = np.sum(matrix[3, :])
 
-        pixel_acc = (np.sum(matrix[0, :]) + self.eps) / (np.sum(matrix[0, :]) + np.sum(matrix[1, :]))
-        dice = (2 * matrix[0] + self.eps) / (2 * matrix[0] + matrix[1] + matrix[2] + self.eps)
-        precision = (matrix[0] + self.eps) / (matrix[0] + matrix[1] + self.eps)
-        recall = (matrix[0] + self.eps) / (matrix[0] + matrix[2] + self.eps)
+        pixel_acc = (tp + tn + self.eps) / (np.sum(matrix) + self.eps)
+        dice = (2 * tp + self.eps) / (tp + fp + fn + self.eps)
+        precision = (tp + self.eps) / (tp + fp + self.eps)
+        recall = (tp + self.eps) / (tp + fn + self.eps)
 
-        if self.average:
-            dice = np.average(dice)
-            precision = np.average(precision)
-            recall = np.average(recall)
+        # if self.average:
+            # dice = np.average(dice)
+            # precision = np.average(precision)
+            # recall = np.average(recall)
 
-        return precision, recall
+        return pixel_acc, dice, precision, recall, np.array(matrix)

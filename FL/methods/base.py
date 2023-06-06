@@ -7,7 +7,7 @@ import os
 from sklearn.metrics import roc_auc_score,  roc_curve
 from datetime import datetime
 import torch.nn.functional as F
-from utils.metrics import multiclass_dice_coeff
+from utils.metrics import multiclass_dice_coeff, SegmentationMetrics
 
 class Base_Client():
     def __init__(self, client_dict, args):
@@ -27,6 +27,8 @@ class Base_Client():
 
         self.result_dir = "C:/Users/hb/Desktop/code/Influencer_learning/FL/Results/{}_{}H_{}M".format(now.date(), str(now.hour), str(now.minute))
         os.mkdir(self.result_dir)
+        self.model_dir = "C:/Users/hb/Desktop/code/Influencer_learning/FL/Results/{}_{}H_{}M/models".format(now.date(), str(now.hour), str(now.minute))
+        os.mkdir(self.model_dir)
         c = open(self.result_dir + "/config.txt", "w")
         c.write("learning_method: FL, dynamic_db: {}, comm_round: {}, local_epoch: {}".format(str(self.args.dynamic_db), str(self.args.comm_round), str(self.args.epochs)))
     
@@ -49,6 +51,7 @@ class Base_Client():
             self.client_index = client_idx
             num_samples = len(self.train_dataloader)*self.args.batch_size
             weights = self.train(client_idx, com_round)
+            torch.save(weights, self.model_dir + "/participant{}.pth".format(client_idx))
             acc = self.test(client_idx)
             client_results.append({'weights':weights, 'num_samples':num_samples,'acc':acc, 'client_index':self.client_index})
             if self.args.client_sample < 1.0 and self.train_dataloader._iterator is not None:
@@ -105,7 +108,8 @@ class Base_Client():
                     elif self.args.task == "segmentation":
                         masks_pred = self.model(images)
                         true_masks = labels.squeeze(1).type(torch.LongTensor)
-                        loss = self.criterion(F.softmax(masks_pred.to(self.device), dim=1).float(), true_masks.to(self.device)) 
+                        # loss = self.criterion(F.softmax(masks_pred.to(self.device), dim=1).float(), true_masks.to(self.device)) 
+                        loss = self.criterion(masks_pred.to(self.device), true_masks.to(self.device))
 
                     loss.backward()
                     self.optimizer.step()
@@ -113,7 +117,7 @@ class Base_Client():
 
             if len(batch_loss) > 0:
                 epoch_loss.append(sum(batch_loss) / len(batch_loss))
-                logging.info('(client {}. Local Training Epoch: {} \tLoss: {:.6f}  Thread {}  Map {}'.format(self.client_index,
+                logging.info('(client {}. Local Training Epoch: {} \tLoss: {:.6f}  Thread {}  Map {}'.format(self.client_index+1,
                                                                             epoch, sum(epoch_loss) / len(epoch_loss), current_process()._identity[0], self.client_map[self.round]))
         weights = self.model.cpu().state_dict()
         return weights
@@ -130,9 +134,13 @@ class Base_Client():
             gt    = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
             k=0
         elif self.args.task == 'segmentation':
+            metric = SegmentationMetrics(ignore_background=True)
+            # matrix = np.zeros((4, 4))
             dice_score = 0
             precision = 0
             recall = 0
+            dice2_score = 0
+            pixel_acc = 0
             probs = []
         with torch.no_grad():
             for batch_idx, (x, target) in enumerate(self.test_dataloader):
@@ -162,10 +170,14 @@ class Base_Client():
                     mask_pred = F.one_hot(out.argmax(dim=1), 5).permute(0, 3, 1, 2).float()
                     mask_true = F.one_hot(target, 5).float()
                     mask_true = mask_true.squeeze(1).permute(0, 3, 1, 2)
-                    probs += out.cpu().numpy().tolist()
-                    dice_score += multiclass_dice_coeff(mask_pred, mask_true, reduce_batch_first=False)
+                    dice_score += multiclass_dice_coeff(mask_pred, mask_true, reduce_batch_first=True)
+                    temp_pixel_acc, temp_dice2_score, temp_precision, temp_recall, temp_mat = metric.calculate_multi_metrics(mask_true, mask_pred,5)
+                    recall += temp_recall
+                    precision += temp_precision
+                    dice2_score += temp_dice2_score
+                    pixel_acc += temp_pixel_acc
+                    # matrix += temp_mat
 
-            
             if self.args.task == "classification":
                 if self.args.dataset == 'NIH' or self.args.dataset == 'CheXpert':
                     try:
@@ -184,10 +196,15 @@ class Base_Client():
                 dice_score /= len(self.test_dataloader)
                 recall /= len(self.test_dataloader)
                 precision /= len(self.test_dataloader)
-                logging.info("Client {} test result: Dice Score = {:.2f}, precision = {:.2f}, recall = {:.2f}*".format(self.client_index+1, dice_score, precision, recall))
+                dice2_score /=len(self.test_dataloader)
+                pixel_acc /= len(self.test_dataloader)
+                
+                logging.info("Client {} test result: Dice Score(w b) = {:.2f}, Dice Score(w/o b): {:.2f}, Pixel acc = {:.2f}, precision = {:.2f}, recall = {:.2f}*".format(self.client_index+1, dice_score, dice2_score, pixel_acc, precision, recall))
+                # logging.info("Client {} test result: Dice Score(w b) = {:.2f}, Dice Score(w/o b): {:.2f}, Pixel acc = {:.2f}, precision = {:.2f}, recall = {:.2f}*".format(self.client_index+1, dice_score, mat_dice, mat_pixel_acc, mat_precision, mat_recall))
                 f = open(self.result_dir + "/participants{}.txt".format(client_idx+1), "a")
-                f.write(str(dice_score.item()) + "\n")
+                f.write("{}, {}, {}, {}, {}".format(str(dice_score.item()), str(dice2_score), str(pixel_acc), str(precision), str(recall)) + "\n")
                 f.close()
+                return dice_score
     
 class Base_Server():
     def __init__(self,server_dict, args):

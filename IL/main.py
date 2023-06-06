@@ -61,7 +61,7 @@ def add_args(parser):
     parser.add_argument('--alpha', type=float, default= 0.99, metavar='a',
                         help='distillation weight : 10.0, 5.0, 2.0, 0.99, 0.95, 0.5, 0.1, 0.05')
     
-    parser.add_argument('--temperature', type=float, default=1.5, metavar='T',
+    parser.add_argument('--temperature', type=float, default= 10.0, metavar='T',
                         help='20.0, 10.0, 8.0, 6.0, 4.5, 3.0, 2.0, 1.5')
     
     parser.add_argument('--num_of_influencer', type=int, default=1, metavar='T',
@@ -72,10 +72,10 @@ def add_args(parser):
     parser.add_argument('--epochs', type=int, default=10, metavar='EP',
                         help='how many epochs will be trained locally per round')
     
-    parser.add_argument('--influencing_epochs', type=int, default=2, metavar='EP',
+    parser.add_argument('--influencing_epochs', type=int, default=1, metavar='EP',
                         help='how many epochs will be trained in the distillation(influencing) step')
 
-    parser.add_argument('--influencing_round', type=int, default=30,
+    parser.add_argument('--influencing_round', type=int, default=20,
                         help='how many rounds of communications are conducted')
 
     parser.add_argument('--pretrained', action='store_true', default=False,  
@@ -166,7 +166,7 @@ if __name__ == "__main__":
         class_num = 14
     elif args.dataset == 'BraTS2021':
         test_data = torch.utils.data.DataLoader(BraTS2021TestLoader(args.data_dir), batch_size = 32, shuffle = not True)
-        qualification_data = torch.utils.data.DataLoader(BraTS2021QualificationLoader(args.data_dir), batch_size = 32, shuffle = not True)
+        qualification_data = BraTS2021QualificationLoader(args.data_dir)
         class_num = 5
 
     ######################################################
