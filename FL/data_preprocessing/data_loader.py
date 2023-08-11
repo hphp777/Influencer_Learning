@@ -455,7 +455,7 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
         if partition == "homo":
 
             if 'NIH' in datadir:
-                total_num = 69219
+                total_num = 50000
                 idxs = np.random.permutation(total_num)
                 overall_batch_idxs = np.array_split(idxs, n_nets)
             elif 'BraTS' in datadir:
@@ -478,7 +478,7 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
         if partition == "homo":
 
             if 'NIH' in datadir:
-                total_num = 69219
+                total_num = 50000
                 idxs = np.random.permutation(total_num)
                 overall_batch_idxs = np.array_split(idxs, n_nets)
             elif 'BraTS' in datadir:

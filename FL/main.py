@@ -32,7 +32,7 @@ def add_args(parser):
     parser.add_argument('--task', type=str, default="classification",
                         help='classification, segmentation')
     
-    parser.add_argument('--method', type=str, default='moon', metavar='N',
+    parser.add_argument('--method', type=str, default='fedavg', metavar='N',
                         help='Options are: fedavg, fedprox, moon, fedalign, fedbalance')
     
     parser.add_argument('--data_dir', type=str, default="C:/Users/hb/Desktop/data/NIH",
@@ -42,7 +42,7 @@ def add_args(parser):
     parser.add_argument('--dataset', type=str, default="NIH",
                         help='data directory: cifar100, cifar10, NIH, CheXpert, BraTS2021')
 
-    parser.add_argument('--partition_method', type=str, default='hetero', metavar='N',
+    parser.add_argument('--partition_method', type=str, default='homo', metavar='N',
                         help='how to partition the dataset on local clients')
 
     parser.add_argument('--partition_alpha', type=float, default=0.5, metavar='PA',
@@ -77,7 +77,7 @@ def add_args(parser):
     parser.add_argument('--mult', type=float, default=0.0001, metavar='MT',
                         help='multiplier for subnet training')
     
-    parser.add_argument('--dynamic_db', type=bool, default=False, metavar='DD',
+    parser.add_argument('--dynamic_db', type=bool, default=True, metavar='DD',
                         help='whether use of dynamic database')
 
     parser.add_argument('--num_subnets', type=int, default=3,
