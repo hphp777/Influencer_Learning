@@ -6,3 +6,4 @@ IL/__pycache__
 IL/data_preprocessing/__pycache__
 logs
 pickles
+IL/models/__pycache__
