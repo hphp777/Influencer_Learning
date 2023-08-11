@@ -86,8 +86,9 @@ class Base_Client():
                     elif self.args.task == "segmentation":
                         masks_pred = self.model(images)
                         true_masks = labels.squeeze(1).type(torch.LongTensor)
-                        loss = self.criterion(F.softmax(masks_pred.to(self.device), dim=1).float(), true_masks.to(self.device)) 
-
+                        # loss = self.criterion(F.softmax(masks_pred.to(self.device), dim=1).float(), true_masks.to(self.device)) 
+                        loss = self.criterion(masks_pred.to(self.device), true_masks.to(self.device))
+                    
                     loss.backward()
                     self.optimizer.step()
                     batch_loss.append(loss.item())

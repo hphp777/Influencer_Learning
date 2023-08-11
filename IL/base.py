@@ -24,7 +24,13 @@ class Participant():
         self.num_classes = client_dict['num_classes']
         self.num_client = args.client_number
         self.dir = client_dict['dir']
-        self.model_weights = [self.model_type.state_dict()] * args.client_number
+
+        if args.resume == False:
+            self.model_weights = [self.model_type.state_dict()] * args.client_number
+        elif args.resume == True:
+            self.model_weights = [0] * args.client_number
+            for i in range(args.client_number):
+                self.model_weights[i] = torch.load("C:/Users/hb/Desktop/code/Influencer_learning/IL/Results/Segmentation(IL)/models/participant{}.pth".format(str(i)), map_location=self.device)
         self.args = args
         self.round = 0
         self.client_map = client_dict['client_map']
@@ -36,15 +42,19 @@ class Participant():
 
         now = datetime.now()
 
-        self.result_dir = "C:/Users/hb/Desktop/code/Influencer_learning/IL/Results/{}_{}H_{}M".format(now.date(), str(now.hour), str(now.minute))
-        os.mkdir(self.result_dir)
-        self.model_dir = "C:/Users/hb/Desktop/code/Influencer_learning/IL/Results/{}_{}H_{}M/models".format(now.date(), str(now.hour), str(now.minute))
-        os.mkdir(self.model_dir)
-        c = open(self.result_dir + "/config.txt", "w")
-        c.write("Task: {}, learning method: IL, alpha: {}, temperature: {}, dynamic_db: {}, num_of_influencer: {}, inf_round: {}, local_epoch: {}".format(self.args.task,str(self.args.alpha), str(self.args.temperature), str(self.args.dynamic_db), str(self.args.num_of_influencer), str(self.args.influencing_round), str(self.args.epochs)))
-        for i in range(self.num_client):
-            open(self.result_dir + "/participants{}.txt".format(i+1), "w")
-    
+        if args.resume == False:
+            self.result_dir = "C:/Users/hb/Desktop/code/Influencer_learning/IL/Results/{}_{}H_{}M".format(now.date(), str(now.hour), str(now.minute))
+            os.mkdir(self.result_dir)
+            self.model_dir = "C:/Users/hb/Desktop/code/Influencer_learning/IL/Results/{}_{}H_{}M/models".format(now.date(), str(now.hour), str(now.minute))
+            os.mkdir(self.model_dir)
+            c = open(self.result_dir + "/config.txt", "w")
+            c.write("Task: {}, learning method: IL, alpha: {}, temperature: {}, dynamic_db: {}, num_of_influencer: {}, inf_round: {}, local_epoch: {}".format(self.args.task,str(self.args.alpha), str(self.args.temperature), str(self.args.dynamic_db), str(self.args.num_of_influencer), str(self.args.influencing_round), str(self.args.epochs)))
+            for i in range(self.num_client):
+                open(self.result_dir + "/participants{}.txt".format(i+1), "w")
+        else:
+            self.result_dir = "C:/Users/hb/Desktop/code/Influencer_learning/IL/Results/Segmentation(IL)"
+            self.model_dir = "C:/Users/hb/Desktop/code/Influencer_learning/IL/Results/Segmentation(IL)/models"
+
     def run(self,inf_round): # thread의 갯수 만큼 실행됨
 
         # Step1 : local training
@@ -75,19 +85,17 @@ class Participant():
         # cascading influencing
         if self.args.task == "segmentation":
             
-            self.cascading_step = 35
+            self.cascading_step = 1
             
             for s in range(self.cascading_step):
                 
                 logging.info("Step 2. Influencing step {} *****************************************************".format(s))
-                start_index = s * int(len(self.qualification_dataloader) / self.cascading_step)
                 self.distill_logits = [0] * self.num_client
                 
                 for c in range(self.num_client):
-                    self.distill_logits[c] = self.cascading_qulification(c, start_index)
+                    self.distill_logits[c] = self.cascading_qulification(c)
                 
-                if c is not self.max_idx:
-                    self.influencing(self.max_idx,self.args)
+                self.influencing(self.max_idx,self.args)
 
                 del self.distill_logits
                 gc.collect()
@@ -97,14 +105,14 @@ class Participant():
                 self.second_max_idx = self.qulification_scores.index(max(self.qulification_scores))
                 # self.ensemble_influencing(self.max_idx, self.second_max_idx, self.args)
 
-        elif self.args.task == "classification":
+        # elif self.args.task == "classification":
             
-            self.influencing(self.max_idx,self.args)
+        #     self.influencing(self.max_idx,self.args)
             
-            if self.args.num_of_influencer == 2:
-                self.qulification_scores[self.max_idx] = 0
-                self.second_max_idx = self.qulification_scores.index(max(self.qulification_scores))
-                self.influencing(self.second_max_idx,self.args)
+        #     if self.args.num_of_influencer == 2:
+        #         self.qulification_scores[self.max_idx] = 0
+        #         self.second_max_idx = self.qulification_scores.index(max(self.qulification_scores))
+        #         self.influencing(self.second_max_idx,self.args)
 
         logging.info("Step 3. Evaluation ******************************************************************")
         for client_idx in range(self.num_client):
@@ -159,8 +167,9 @@ class Participant():
         self.model.load_state_dict(self.model_weights[client_idx])
         self.model.to(self.device)
         self.model.train()
+        sigmoid = torch.nn.Sigmoid()
 
-        logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.qualification_dataloader)))
+        logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.qualification_dataloader) * 32))
         
         batch_loss = []
         for batch_idx, (images, labels) in enumerate(self.qualification_dataloader):
@@ -178,14 +187,20 @@ class Participant():
                     loss = self.criterion(log_probs, labels.type(torch.LongTensor).to(self.device))
 
             elif self.args.task == "segmentation":
-                masks_pred = self.model(images.unsqueeze(0))
-                true_masks = labels.squeeze(1).type(torch.LongTensor)
+                masks_pred = self.model(images)
+                true_masks = labels.squeeze().type(torch.LongTensor)
                 # loss = self.criterion(F.softmax(masks_pred.to(self.device), dim=1).float(), true_masks.to(self.device)) 
-                loss = self.criterion(masks_pred.to(self.device), true_masks.to(self.device))
-
-            loss.backward()
-            self.optimizer.step()
-            batch_loss.append(loss.item())
+                try:
+                    loss = self.criterion(masks_pred.to(self.device), true_masks.squeeze().to(self.device))
+                except RuntimeError:
+                    continue
+                
+            try:
+                loss.backward()
+                self.optimizer.step()
+                batch_loss.append(loss.item())
+            except RuntimeError:
+                continue
             
         self.model_weights[client_idx] = self.model.cpu().state_dict()
         
@@ -213,7 +228,6 @@ class Participant():
             for batch_idx, (x, target) in enumerate(self.qualification_dataloader):
 
                 target = target.type(torch.LongTensor)
-                x = x.unsqueeze(0)
                 x = x.to(self.device)
                 target = target.to(self.device)
                 out = self.model(x)
@@ -259,7 +273,7 @@ class Participant():
                 logging.info("* Qualification Score of participant {} : Dice Score = {:.2f}*".format(self.client_index+1, dice_score))
                 return dice_score
 
-    def cascading_qulification(self, client_idx, start_index):
+    def cascading_qulification(self, client_idx):
 
         self.model.load_state_dict(self.model_weights[client_idx])
         self.model.to(self.device)
@@ -280,10 +294,7 @@ class Participant():
 
         with torch.no_grad():
 
-            for i in range(start_index, start_index + int(val_loader_examples_num / self.cascading_step)):
-                x, target = self.qualification_dataloader[i]
-                x = x.unsqueeze(0)
-            # for batch_idx, (x, target) in enumerate(self.qualification_dataloader):
+            for batch_idx, (x, target) in enumerate(self.qualification_dataloader):
 
                 target = target.type(torch.LongTensor)
                 x = x.to(self.device)
@@ -310,7 +321,7 @@ class Participant():
                     mask_pred = F.one_hot(out.argmax(dim=1), 5).permute(0, 3, 1, 2).float()
                     mask_true = F.one_hot(target, 5).float()
                     mask_true = mask_true.squeeze(1).permute(0, 3, 1, 2)
-                    probs += out.cpu().numpy().tolist()
+                    probs += out[0].unsqueeze(0).cpu().numpy().tolist()
                     dice_score += multiclass_dice_coeff(mask_pred, mask_true, reduce_batch_first=False)
 
 

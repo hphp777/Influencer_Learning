@@ -655,7 +655,7 @@ class BraTS2021QualificationLoader(Dataset): # custom dataset
 
         indices = list(range(77500))
         random.shuffle(indices)
-        self.indices = indices[:int(0.2 * len(indices))]
+        self.indices = indices[int(0.4 * len(indices)):int(0.7 * len(indices))]
         self.dir = dir + "/Qualification"
         print("Qualificiation dataset : ",len(self.indices))
 

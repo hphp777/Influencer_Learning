@@ -656,7 +656,7 @@ class BraTS2021TestLoader(Dataset): # custom dataset
         
         self.indices = list(range(77500))
         random.shuffle(self.indices)
-        self.indices = self.indices[:int(0.5 * len(self.indices))]
+        self.indices = self.indices[:int(0.1 * len(self.indices))]
         self.dir = dir + "/Test"
 
     def __len__(self):

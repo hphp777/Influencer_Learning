@@ -1,4 +1,4 @@
-folder = "2023-04-23_20H_32M"
+folder = "2023-07-01_15H_29M"
 
 
 f1 = open('C:/Users/hb/Desktop/code/Influencer_learning/IL/Results/' + folder + '/participants1.txt', 'r')

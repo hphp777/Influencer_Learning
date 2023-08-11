@@ -29,20 +29,20 @@ from data_preprocessing.datasets import NIHTestDataset
 
 def add_args(parser):
     # Training settings
-    parser.add_argument('--task', type=str, default="segmentation",
+    parser.add_argument('--task', type=str, default="classification",
                         help='classification, segmentation')
     
-    parser.add_argument('--method', type=str, default='fedavg', metavar='N',
+    parser.add_argument('--method', type=str, default='moon', metavar='N',
                         help='Options are: fedavg, fedprox, moon, fedalign, fedbalance')
     
-    parser.add_argument('--data_dir', type=str, default="D:/Data/BraTS2021/2D",
+    parser.add_argument('--data_dir', type=str, default="C:/Users/hb/Desktop/data/NIH",
                         help='data directory: data/cifar100, data/cifar10, "C:/Users/hb/Desktop/data/NIH", \
                         C:/Users/hb/Desktop/data/CheXpert-v1.0-small, "D:/Data/BraTS2021/2D"')
 
-    parser.add_argument('--dataset', type=str, default="BraTS2021",
+    parser.add_argument('--dataset', type=str, default="NIH",
                         help='data directory: cifar100, cifar10, NIH, CheXpert, BraTS2021')
 
-    parser.add_argument('--partition_method', type=str, default='homo', metavar='N',
+    parser.add_argument('--partition_method', type=str, default='hetero', metavar='N',
                         help='how to partition the dataset on local clients')
 
     parser.add_argument('--partition_alpha', type=float, default=0.5, metavar='PA',
@@ -59,10 +59,10 @@ def add_args(parser):
 
     parser.add_argument('--wd', help='weight decay parameter;', type=float, default=0.0001)
 
-    parser.add_argument('--epochs', type=int, default=10, metavar='EP',
+    parser.add_argument('--epochs', type=int, default=2, metavar='EP',
                         help='how many epochs will be trained locally per round')
 
-    parser.add_argument('--comm_round', type=int, default=30,
+    parser.add_argument('--comm_round', type=int, default=50,
                         help='how many rounds of communications are conducted')
 
     parser.add_argument('--pretrained', action='store_true', default=False,  
@@ -77,7 +77,7 @@ def add_args(parser):
     parser.add_argument('--mult', type=float, default=0.0001, metavar='MT',
                         help='multiplier for subnet training')
     
-    parser.add_argument('--dynamic_db', type=bool, default=True, metavar='DD',
+    parser.add_argument('--dynamic_db', type=bool, default=False, metavar='DD',
                         help='whether use of dynamic database')
 
     parser.add_argument('--num_subnets', type=int, default=3,
@@ -159,29 +159,30 @@ if __name__ == "__main__":
     args = add_args(parser)
  
     ###################################### get data
-    # if args.dynamic_db == False :
-    #     train_data_num, test_data_num, train_data_global, test_data_global, data_local_num_dict, train_data_local_dict, test_data_local_dict,\
-    #          class_num, client_pos_freq, client_neg_freq, client_imbalances = dl.load_partition_data(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size)
-    #     print(client_imbalances)
+    if args.dynamic_db == False :
+        train_data_num, test_data_num, train_data_global, test_data_global, data_local_num_dict, train_data_local_dict, test_data_local_dict,\
+             class_num, client_pos_freq, client_neg_freq, client_imbalances = dl.load_partition_data(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size)
+        print(client_imbalances)
     
-    if args.task == "classification":
-        if args.dataset == "NIH":
-            if args.dynamic_db == False :
-                train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic = args.dynamic_db)
-                train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
-                test_data_global = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
-                class_num = 14
+    if args.dynamic_db == True :
+        if args.task == "classification":
+            if args.dataset == "NIH":
+                if args.dynamic_db == False :
+                    train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic = args.dynamic_db)
+                    train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
+                    test_data_global = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
+                    class_num = 14
 
-            if args.dynamic_db == True :
-                train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic = args.dynamic_db)
-                train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
-                test_data_global = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
-                class_num = 14
-    if args.task == "segmentation":
-        train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic=args.dynamic_db)
-        train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
-        test_data_global = torch.utils.data.DataLoader(BraTS2021TestLoader(args.data_dir), batch_size = 32, shuffle = not True)
-        class_num = 5
+                if args.dynamic_db == True :
+                    train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic = args.dynamic_db)
+                    train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
+                    test_data_global = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
+                    class_num = 14
+        if args.task == "segmentation":
+            train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic=args.dynamic_db)
+            train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
+            test_data_global = torch.utils.data.DataLoader(BraTS2021TestLoader(args.data_dir), batch_size = 32, shuffle = not True)
+            class_num = 5
 
     # train_data_num = 50000
     # test_data_num = 312

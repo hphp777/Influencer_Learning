@@ -40,7 +40,7 @@ def add_args(parser):
     parser.add_argument('--dataset', type=str, default="BraTS2021",
                         help='data directory: cifar100, cifar10, NIH, CheXpert, BraTS2021')
     
-    parser.add_argument('--dynamic_db', type=bool, default=True,
+    parser.add_argument('--dynamic_db', type=bool, default=False,
                         help='whether use of dynamic database')
 
     parser.add_argument('--partition_method', type=str, default='homo', metavar='N',
@@ -69,13 +69,15 @@ def add_args(parser):
 
     parser.add_argument('--wd', help='weight decay parameter;', type=float, default=0.0001)
 
-    parser.add_argument('--epochs', type=int, default=10, metavar='EP',
+    parser.add_argument('--resume', help='weight decay parameter;', type=bool, default= False)
+
+    parser.add_argument('--epochs', type=int, default=5, metavar='EP',
                         help='how many epochs will be trained locally per round')
     
     parser.add_argument('--influencing_epochs', type=int, default=1, metavar='EP',
                         help='how many epochs will be trained in the distillation(influencing) step')
 
-    parser.add_argument('--influencing_round', type=int, default=20,
+    parser.add_argument('--influencing_round', type=int, default=30,
                         help='how many rounds of communications are conducted')
 
     parser.add_argument('--pretrained', action='store_true', default=False,  
@@ -166,7 +168,7 @@ if __name__ == "__main__":
         class_num = 14
     elif args.dataset == 'BraTS2021':
         test_data = torch.utils.data.DataLoader(BraTS2021TestLoader(args.data_dir), batch_size = 32, shuffle = not True)
-        qualification_data = BraTS2021QualificationLoader(args.data_dir)
+        qualification_data = torch.utils.data.DataLoader(BraTS2021QualificationLoader(args.data_dir), batch_size = 32, shuffle = not True)
         class_num = 5
 
     ######################################################
