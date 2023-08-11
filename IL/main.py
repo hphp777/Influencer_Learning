@@ -30,17 +30,17 @@ from data_preprocessing.data_loader import _data_transforms_NIH, load_dynamic_db
 
 def add_args(parser):
     # Training settings
-    parser.add_argument('--task', type=str, default="segmentation",
+    parser.add_argument('--task', type=str, default="classification",
                         help='classification, segmentation')
     
-    parser.add_argument('--data_dir', type=str, default="D:/Data/BraTS2021/2D",
-                        help='data directory: data/cifar100, data/cifar10, "C:/Users/hb/Desktop/data/NIH", \
+    parser.add_argument('--data_dir', type=str, default="C:/Users/hamdo/Desktop/data/NIH",
+                        help='data directory: data/cifar100, data/cifar10, C:/Users/hamdo/Desktop/data/NIH, \
                         C:/Users/hb/Desktop/data/CheXpert-v1.0-small, "D:/Data/BraTS2021/2D"')
 
-    parser.add_argument('--dataset', type=str, default="BraTS2021",
+    parser.add_argument('--dataset', type=str, default="NIH",
                         help='data directory: cifar100, cifar10, NIH, CheXpert, BraTS2021')
     
-    parser.add_argument('--dynamic_db', type=bool, default=False,
+    parser.add_argument('--dynamic_db', type=bool, default=True,
                         help='whether use of dynamic database')
 
     parser.add_argument('--partition_method', type=str, default='homo', metavar='N',
@@ -189,7 +189,7 @@ if __name__ == "__main__":
     elif args.task == 'segmentation':
         Model = UNet(1, class_num, bilinear=False) 
 
-    client_dict = [{'train_data':train_data_local_dict, 'qulification_data': qualification_data, 'test_data' : test_data,'device': i % torch.cuda.device_count(),
+    client_dict = [{'train_data':train_data_local_dict, 'qulification_data': qualification_data,'backup_data' : backup_data, 'test_data' : test_data,'device': i % torch.cuda.device_count(),
                         'client_map':mapping_dict[i], 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir} for i in range(args.thread_number)]
 
     client_info = Queue()

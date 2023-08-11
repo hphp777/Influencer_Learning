@@ -274,7 +274,7 @@ class NIHTrainDataset(Dataset):
         return merged_df
     
     def get_train_val_list(self):
-        f = open("C:/Users/hb/Desktop/data/NIH/train_list.txt", 'r')
+        f = open("C:/Users/hamdo/Desktop/data/NIH/train_list.txt", 'r')
         train_val_list = str.split(f.read(), '\n')
         return train_val_list
 
@@ -363,7 +363,7 @@ class NIHTestDataset(Dataset):
         return test_df
 
     def get_test_list(self):
-        f = open( os.path.join('C:/Users/hb/Desktop/data/NIH', 'test_list.txt'), 'r')
+        f = open( os.path.join('C:/Users/hamdo/Desktop/data/NIH', 'test_list.txt'), 'r')
         test_list = str.split(f.read(), '\n')
         return test_list
 
@@ -445,7 +445,7 @@ class NIHQualificationDataset(Dataset):
         return test_df
 
     def get_test_list(self):
-        f = open( os.path.join('C:/Users/hb/Desktop/data/NIH', 'qualification.txt'), 'r')
+        f = open( os.path.join('C:/Users/hamdo/Desktop/data/NIH', 'qualification.txt'), 'r')
         test_list = str.split(f.read(), '\n')
         return test_list
 
@@ -527,7 +527,7 @@ class NIHBackupDataset(Dataset):
         return test_df
 
     def get_test_list(self):
-        f = open( os.path.join('C:/Users/hb/Desktop/data/NIH', 'backup_list.txt'), 'r')
+        f = open( os.path.join('C:/Users/hamdo/Desktop/data/NIH', 'backup_list.txt'), 'r')
         test_list = str.split(f.read(), '\n')
         return test_list
 

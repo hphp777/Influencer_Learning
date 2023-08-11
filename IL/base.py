@@ -19,6 +19,7 @@ class Participant():
         self.train_data = client_dict['train_data'] # dataloader(with all clients)
         self.qualification_data = client_dict['qulification_data']
         self.test_data = client_dict['test_data']
+        self.backup_data = client_dict['backup_data']
         self.device = 'cuda:{}'.format(client_dict['device'])
         self.model_type = client_dict['model_type'] # model type is the model itself
         self.num_classes = client_dict['num_classes']
@@ -65,13 +66,14 @@ class Participant():
             self.train_dataloader = self.train_data[client_idx] # among dataloader, pick one
             self.test_dataloader = self.test_data
             self.qualification_dataloader = self.qualification_data
+            self.backup_dataloader = self.backup_data
             
             if self.args.client_sample < 1.0 and self.train_dataloader._iterator is not None and self.train_dataloader._iterator._shutdown:
                 self.train_dataloader._iterator = self.train_dataloader._get_iterator()
             
             self.client_index = client_idx
             self.train(client_idx, inf_round)
-            self.qualification_train(client_idx)
+            self.backup_train(client_idx)
             self.qulification_scores[client_idx] = self.qulification(client_idx)
             
             if self.args.client_sample < 1.0 and self.train_dataloader._iterator is not None:
@@ -162,7 +164,7 @@ class Participant():
         
         self.model_weights[client_idx] = self.model.cpu().state_dict()
 
-    def qualification_train(self, client_idx):
+    def backup_train(self, client_idx):
 
         self.model.load_state_dict(self.model_weights[client_idx])
         self.model.to(self.device)
@@ -172,7 +174,7 @@ class Participant():
         logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.qualification_dataloader) * 32))
         
         batch_loss = []
-        for batch_idx, (images, labels) in enumerate(self.qualification_dataloader):
+        for batch_idx, (images, labels) in enumerate(self.backup_dataloader):
             # logging.info(images.shape)
             images, labels = images.to(self.device), labels.to(self.device)
             # print(images.size())

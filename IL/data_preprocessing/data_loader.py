@@ -477,7 +477,7 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
         if partition == "homo":
 
             if 'NIH' in datadir:
-                total_num = 69219
+                total_num = 50000
                 idxs = np.random.permutation(total_num)
                 overall_batch_idxs = np.array_split(idxs, n_nets)
             elif 'BraTS' in datadir:
@@ -599,15 +599,15 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
             client_neg_freq = np.array(class_neg_freq)
             client_neg_freq = client_neg_freq.T
 
-            for k in range(16):
-                all_classes = list(range(1, 101))
-                plt.figure(figsize=(8,4))
-                plt.title('Client{} Data Distribution'.format(k), fontsize=20)
-                plt.bar(all_classes, client_pos_freq[k])
-                plt.tight_layout()
-                plt.gcf().subplots_adjust(bottom=0.40)
-                plt.savefig('C:/Users/hb/Desktop/code/3.FedBalance_mp/data_distribution/Client{}_Data_distribution.png'.format(k))
-                plt.clf()
+            # for k in range(16):
+            #     all_classes = list(range(1, 101))
+            #     plt.figure(figsize=(8,4))
+            #     plt.title('Client{} Data Distribution'.format(k), fontsize=20)
+            #     plt.bar(all_classes, client_pos_freq[k])
+            #     plt.tight_layout()
+            #     plt.gcf().subplots_adjust(bottom=0.40)
+            #     plt.savefig('C:/Users/hb/Desktop/code/3.FedBalance_mp/data_distribution/Client{}_Data_distribution.png'.format(k))
+            #     plt.clf()
 
             # Get clients' degree of data imbalances.
             for i in range(n_nets):
@@ -698,15 +698,15 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
             client_neg_freq = np.array(class_neg_freq)
             client_neg_freq = client_neg_freq.T
 
-            for k in range(K):
-                all_classes = list(range(1, 11))
-                plt.figure(figsize=(8,4))
-                plt.title('Client{} Data Distribution'.format(k), fontsize=20)
-                plt.bar(all_classes, client_pos_freq[k])
-                plt.tight_layout()
-                plt.gcf().subplots_adjust(bottom=0.40)
-                plt.savefig('C:/Users/hb/Desktop/code/3.FedBalance_mp/data_distribution/Client{}_Data_distribution.png'.format(k))
-                plt.clf()
+            # for k in range(K):
+            #     all_classes = list(range(1, 11))
+            #     plt.figure(figsize=(8,4))
+            #     plt.title('Client{} Data Distribution'.format(k), fontsize=20)
+            #     plt.bar(all_classes, client_pos_freq[k])
+            #     plt.tight_layout()
+            #     plt.gcf().subplots_adjust(bottom=0.40)
+            #     plt.savefig('C:/Users/hb/Desktop/code/3.FedBalance_mp/data_distribution/Client{}_Data_distribution.png'.format(k))
+            #     plt.clf()
 
             # Get clients' degree of data imbalances.
             for i in range(n_nets):
