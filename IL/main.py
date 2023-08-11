@@ -19,7 +19,7 @@ from torch.multiprocessing import set_start_method, Queue
 import logging
 import os
 from collections import defaultdict
-from data_preprocessing.datasets import NIHQualificationDataset, NIHTestDataset
+from data_preprocessing.datasets import NIHQualificationDataset, NIHTestDataset, NIHBackupDataset
 from data_preprocessing.datasets import BraTS2021QualificationLoader, BraTS2021TestLoader
 import time
 
@@ -165,6 +165,7 @@ if __name__ == "__main__":
     if args.dataset == 'NIH':
         test_data = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
         qualification_data = torch.utils.data.DataLoader(NIHQualificationDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
+        backup_data = torch.utils.data.DataLoader(NIHBackupDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
         class_num = 14
     elif args.dataset == 'BraTS2021':
         test_data = torch.utils.data.DataLoader(BraTS2021TestLoader(args.data_dir), batch_size = 32, shuffle = not True)

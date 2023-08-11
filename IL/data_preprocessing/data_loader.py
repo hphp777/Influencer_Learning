@@ -213,7 +213,7 @@ def partition_data(datadir, partition, n_nets, alpha):
         # [[], [], [], [], [], [], [], [], [], []] # the number of clients
         # for each class in the dataset
         if 'NIH' in datadir or 'CheXpert' in datadir:
-            N = 86336
+            N = 50000
             idx_k = np.array(list(range(N)))
             np.random.shuffle(idx_k)
             while min_size < 10:
@@ -342,8 +342,7 @@ def partition_data(datadir, partition, n_nets, alpha):
 
             # the number of class, shuffled indices, record of it
             return class_num, net_dataidx_map, traindata_cls_counts, client_pos_freq, client_neg_freq, client_imbalances
-
-        
+      
         elif 'cifar10' in datadir:
             long_tail = get_img_num_per_cls('10')
             print("Long tail:", long_tail)
@@ -455,7 +454,7 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
         if partition == "homo":
 
             if 'NIH' in datadir:
-                total_num = 69219
+                total_num = 50000
                 idxs = np.random.permutation(total_num)
                 overall_batch_idxs = np.array_split(idxs, n_nets)
             elif 'BraTS' in datadir:

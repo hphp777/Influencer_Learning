@@ -274,7 +274,7 @@ class NIHTrainDataset(Dataset):
         return merged_df
     
     def get_train_val_list(self):
-        f = open("C:/Users/hb/Desktop/data/NIH/train_val_list.txt", 'r')
+        f = open("C:/Users/hb/Desktop/data/NIH/train_list.txt", 'r')
         train_val_list = str.split(f.read(), '\n')
         return train_val_list
 

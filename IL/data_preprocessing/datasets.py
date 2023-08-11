@@ -199,16 +199,16 @@ class NIHTrainDataset(Dataset):
         self.imbalance = 1 / difference_cnt.sum()
 
         # Plot the disease distribution
-        self.all_classes = ['Cardiomegaly','Emphysema','Effusion','Hernia','Infiltration','Mass','Nodule','Atelectasis','Pneumothorax','Pleural_Thickening','Pneumonia','Fibrosis','Edema','Consolidation']
-        plt.figure(figsize=(8,4))
-        plt.title('Client{} Disease Distribution'.format(c_num), fontsize=20)
-        plt.bar(self.all_classes,self.total_ds_cnt)
-        plt.tight_layout()
-        plt.gcf().subplots_adjust(bottom=0.40)
-        plt.xticks(rotation = 90)
-        plt.xlabel('Diseases')
-        plt.savefig('C:/Users/hb/Desktop/code/Influencer_learning/IL/data_preprocessing/Client{}_disease_distribution.png'.format(c_num))
-        plt.clf()
+        # self.all_classes = ['Cardiomegaly','Emphysema','Effusion','Hernia','Infiltration','Mass','Nodule','Atelectasis','Pneumothorax','Pleural_Thickening','Pneumonia','Fibrosis','Edema','Consolidation']
+        # plt.figure(figsize=(8,4))
+        # plt.title('Client{} Disease Distribution'.format(c_num), fontsize=20)
+        # plt.bar(self.all_classes,self.total_ds_cnt)
+        # plt.tight_layout()
+        # plt.gcf().subplots_adjust(bottom=0.40)
+        # plt.xticks(rotation = 90)
+        # plt.xlabel('Diseases')
+        # plt.savefig('C:/Users/hb/Desktop/code/Influencer_learning/IL/data_preprocessing/Client{}_disease_distribution.png'.format(c_num))
+        # plt.clf()
 
     def get_ds_cnt(self, c_num):
 
@@ -274,7 +274,7 @@ class NIHTrainDataset(Dataset):
         return merged_df
     
     def get_train_val_list(self):
-        f = open("C:/Users/hb/Desktop/data/NIH/train_val_list.txt", 'r')
+        f = open("C:/Users/hb/Desktop/data/NIH/train_list.txt", 'r')
         train_val_list = str.split(f.read(), '\n')
         return train_val_list
 
@@ -446,6 +446,88 @@ class NIHQualificationDataset(Dataset):
 
     def get_test_list(self):
         f = open( os.path.join('C:/Users/hb/Desktop/data/NIH', 'qualification.txt'), 'r')
+        test_list = str.split(f.read(), '\n')
+        return test_list
+
+    def __len__(self):
+        return len(self.test_df)
+
+class NIHBackupDataset(Dataset):
+
+    def __init__(self, data_dir, transform = None):
+        self.data_dir = data_dir
+        self.transform = transform
+        # full dataframe including train_val and test set
+        self.df = self.get_df()
+        self.make_pkl_dir(config.pkl_dir_path)
+        self.disease_cnt = [0]*14
+        self.all_classes = ['Cardiomegaly','Emphysema','Effusion','Hernia','Infiltration','Mass','Nodule','Atelectasis','Pneumothorax','Pleural_Thickening','Pneumonia','Fibrosis','Edema','Consolidation', 'No Finding']
+
+        # loading the classes list
+        with open(os.path.join(config.pkl_dir_path, config.disease_classes_pkl_path), 'rb') as handle:
+            self.all_classes = pickle.load(handle) 
+        # get test_df
+        if not os.path.exists(os.path.join(config.pkl_dir_path, config.test_df_pkl_path)):
+            self.test_df = self.get_test_df()
+            with open(os.path.join(config.pkl_dir_path, config.test_df_pkl_path), 'wb') as handle:
+                pickle.dump(self.test_df, handle, protocol = pickle.HIGHEST_PROTOCOL)
+            print('\n{}: dumped'.format(config.test_df_pkl_path))
+        else:
+            # pickle load the test_df
+            with open(os.path.join(config.pkl_dir_path, config.test_df_pkl_path), 'rb') as handle:
+                self.test_df = pickle.load(handle)
+
+        for i in range(len(self.test_df)):
+            row = self.test_df.iloc[i, :]
+            labels = str.split(row['Finding Labels'], '|')
+            for lab in labels:  
+                lab_idx = self.all_classes.index(lab)
+                if lab_idx == 14: # No Finding
+                    continue
+                self.disease_cnt[lab_idx] += 1
+
+    def get_ds_cnt(self):
+        return self.disease_cnt
+
+    def __getitem__(self, index):
+        row = self.test_df.iloc[index, :]
+        # img = cv2.imread(row['image_links'])
+        img = Image.open(row['image_links'])
+        labels = str.split(row['Finding Labels'], '|')
+        target = torch.zeros(len(self.all_classes)) # 15
+        for lab in labels:
+            lab_idx = self.all_classes.index(lab)
+            target[lab_idx] = 1     
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, target[:14]
+
+    def make_pkl_dir(self, pkl_dir_path):
+        if not os.path.exists(pkl_dir_path):
+            os.mkdir(pkl_dir_path)
+
+    def get_df(self):
+        csv_path = os.path.join(self.data_dir, 'Data_Entry_2017.csv')
+        all_xray_df = pd.read_csv(csv_path)
+        df = pd.DataFrame()        
+        df['image_links'] = [x for x in glob.glob(os.path.join(self.data_dir, 'images*', '*', '*.png'))]
+        df['Image Index'] = df['image_links'].apply(lambda x : x[len(x)-16:len(x)])
+        merged_df = df.merge(all_xray_df, how = 'inner', on = ['Image Index'])
+        merged_df = merged_df[['image_links','Finding Labels']]
+        return merged_df
+
+    def get_test_df(self):
+        # get the list of test data 
+        test_list = self.get_test_list()
+        test_df = pd.DataFrame()
+        for i in tqdm(range(self.df.shape[0])):
+            filename  = os.path.basename(self.df.iloc[i,0])
+            if filename in test_list:
+                test_df = test_df.append(self.df.iloc[i:i+1, :])
+        return test_df
+
+    def get_test_list(self):
+        f = open( os.path.join('C:/Users/hb/Desktop/data/NIH', 'backup_list.txt'), 'r')
         test_list = str.split(f.read(), '\n')
         return test_list
 
