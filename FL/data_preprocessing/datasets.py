@@ -199,16 +199,16 @@ class NIHTrainDataset(Dataset):
         self.imbalance = 1 / difference_cnt.sum()
 
         # Plot the disease distribution
-        self.all_classes = ['Cardiomegaly','Emphysema','Effusion','Hernia','Infiltration','Mass','Nodule','Atelectasis','Pneumothorax','Pleural_Thickening','Pneumonia','Fibrosis','Edema','Consolidation']
-        plt.figure(figsize=(8,4))
-        plt.title('Client{} Disease Distribution'.format(c_num), fontsize=20)
-        plt.bar(self.all_classes,self.total_ds_cnt)
-        plt.tight_layout()
-        plt.gcf().subplots_adjust(bottom=0.40)
-        plt.xticks(rotation = 90)
-        plt.xlabel('Diseases')
-        plt.savefig('C:/Users/hb/Desktop/code/Influencer_learning/IL/data_preprocessing/Client{}_disease_distribution.png'.format(c_num))
-        plt.clf()
+        # self.all_classes = ['Cardiomegaly','Emphysema','Effusion','Hernia','Infiltration','Mass','Nodule','Atelectasis','Pneumothorax','Pleural_Thickening','Pneumonia','Fibrosis','Edema','Consolidation']
+        # plt.figure(figsize=(8,4))
+        # plt.title('Client{} Disease Distribution'.format(c_num), fontsize=20)
+        # plt.bar(self.all_classes,self.total_ds_cnt)
+        # plt.tight_layout()
+        # plt.gcf().subplots_adjust(bottom=0.40)
+        # plt.xticks(rotation = 90)
+        # plt.xlabel('Diseases')
+        # plt.savefig('C:/Users/hb/Desktop/code/Influencer_learning/IL/data_preprocessing/Client{}_disease_distribution.png'.format(c_num))
+        # plt.clf()
 
     def get_ds_cnt(self, c_num):
 
