@@ -8,8 +8,10 @@ class Node(Participant):
     # 부모 class의 함수는 모두 가지고 있음 
     def __init__(self, client_dict, args):
         super().__init__(client_dict, args)
+        # ResNet
         # self.model = self.model_type(self.num_classes).to(self.device)
-        self.model = self.model_type.to(self.device)
+        # EfficientNet
+        # self.model = self.model_type.to(self.device)
         if args.task == 'segmentation':
             self.criterion = nn.CrossEntropyLoss().to(self.device)
         elif args.task == 'classification':

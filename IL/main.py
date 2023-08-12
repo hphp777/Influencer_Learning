@@ -182,10 +182,10 @@ if __name__ == "__main__":
 
     # model
     if args.task == 'classification':
-        # Model = resnet56
-        Model = models.efficientnet_b0(pretrained=True)
-        num_ftrs = Model.classifier[1].in_features
-        Model.classifier[1] = nn.Linear(in_features=num_ftrs, out_features=class_num)
+        Model = resnet56
+        # Model = models.efficientnet_b0(pretrained=True)
+        # num_ftrs = Model.classifier[1].in_features
+        # Model.classifier[1] = nn.Linear(in_features=num_ftrs, out_features=class_num)
     elif args.task == 'segmentation':
         Model = UNet(1, class_num, bilinear=False) 
 

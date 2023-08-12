@@ -385,14 +385,14 @@ class NIHQualificationDataset(Dataset):
         with open(os.path.join(config.pkl_dir_path, config.disease_classes_pkl_path), 'rb') as handle:
             self.all_classes = pickle.load(handle) 
         # get test_df
-        if not os.path.exists(os.path.join(config.pkl_dir_path, config.test_df_pkl_path)):
+        if not os.path.exists(os.path.join(config.pkl_dir_path, config.qualification_df_pkl_path)):
             self.test_df = self.get_test_df()
-            with open(os.path.join(config.pkl_dir_path, config.test_df_pkl_path), 'wb') as handle:
+            with open(os.path.join(config.pkl_dir_path, config.qualification_df_pkl_path), 'wb') as handle:
                 pickle.dump(self.test_df, handle, protocol = pickle.HIGHEST_PROTOCOL)
-            print('\n{}: dumped'.format(config.test_df_pkl_path))
+            print('\n{}: dumped'.format(config.qualification_df_pkl_path))
         else:
             # pickle load the test_df
-            with open(os.path.join(config.pkl_dir_path, config.test_df_pkl_path), 'rb') as handle:
+            with open(os.path.join(config.pkl_dir_path, config.qualification_df_pkl_path), 'rb') as handle:
                 self.test_df = pickle.load(handle)
 
         for i in range(len(self.test_df)):
@@ -467,14 +467,14 @@ class NIHBackupDataset(Dataset):
         with open(os.path.join(config.pkl_dir_path, config.disease_classes_pkl_path), 'rb') as handle:
             self.all_classes = pickle.load(handle) 
         # get test_df
-        if not os.path.exists(os.path.join(config.pkl_dir_path, config.test_df_pkl_path)):
+        if not os.path.exists(os.path.join(config.pkl_dir_path, config.backup_df_pkl_path)):
             self.test_df = self.get_test_df()
-            with open(os.path.join(config.pkl_dir_path, config.test_df_pkl_path), 'wb') as handle:
+            with open(os.path.join(config.pkl_dir_path, config.backup_df_pkl_path), 'wb') as handle:
                 pickle.dump(self.test_df, handle, protocol = pickle.HIGHEST_PROTOCOL)
-            print('\n{}: dumped'.format(config.test_df_pkl_path))
+            print('\n{}: dumped'.format(config.backup_df_pkl_path))
         else:
             # pickle load the test_df
-            with open(os.path.join(config.pkl_dir_path, config.test_df_pkl_path), 'rb') as handle:
+            with open(os.path.join(config.pkl_dir_path, config.backup_df_pkl_path), 'rb') as handle:
                 self.test_df = pickle.load(handle)
 
         for i in range(len(self.test_df)):

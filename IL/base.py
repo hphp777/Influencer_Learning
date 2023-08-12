@@ -25,9 +25,13 @@ class Participant():
         self.num_classes = client_dict['num_classes']
         self.num_client = args.client_number
         self.dir = client_dict['dir']
-
+        # ResNet
+        self.model = self.model_type(self.num_classes).to(self.device)
+        # EfficientNet
+        # self.model = self.model_type.to(self.device)
+        
         if args.resume == False:
-            self.model_weights = [self.model_type.state_dict()] * args.client_number
+            self.model_weights = [self.model.state_dict()] * args.client_number
         elif args.resume == True:
             self.model_weights = [0] * args.client_number
             for i in range(args.client_number):
@@ -44,17 +48,17 @@ class Participant():
         now = datetime.now()
 
         if args.resume == False:
-            self.result_dir = "C:/Users/hb/Desktop/code/Influencer_learning/IL/Results/{}_{}H_{}M".format(now.date(), str(now.hour), str(now.minute))
+            self.result_dir = "C:/Users/hamdo/Desktop/code/Influencer_learning/IL/Results/{}_{}H_{}M".format(now.date(), str(now.hour), str(now.minute))
             os.mkdir(self.result_dir)
-            self.model_dir = "C:/Users/hb/Desktop/code/Influencer_learning/IL/Results/{}_{}H_{}M/models".format(now.date(), str(now.hour), str(now.minute))
+            self.model_dir = "C:/Users/hamdo/Desktop/code/Influencer_learning/IL/Results/{}_{}H_{}M/models".format(now.date(), str(now.hour), str(now.minute))
             os.mkdir(self.model_dir)
             c = open(self.result_dir + "/config.txt", "w")
             c.write("Task: {}, learning method: IL, alpha: {}, temperature: {}, dynamic_db: {}, num_of_influencer: {}, inf_round: {}, local_epoch: {}".format(self.args.task,str(self.args.alpha), str(self.args.temperature), str(self.args.dynamic_db), str(self.args.num_of_influencer), str(self.args.influencing_round), str(self.args.epochs)))
             for i in range(self.num_client):
                 open(self.result_dir + "/participants{}.txt".format(i+1), "w")
         else:
-            self.result_dir = "C:/Users/hb/Desktop/code/Influencer_learning/IL/Results/Segmentation(IL)"
-            self.model_dir = "C:/Users/hb/Desktop/code/Influencer_learning/IL/Results/Segmentation(IL)/models"
+            self.result_dir = "C:/Users/hamdo/Desktop/code/Influencer_learning/IL/Results/Segmentation(IL)"
+            self.model_dir = "C:/Users/hamdo/Desktop/code/Influencer_learning/IL/Results/Segmentation(IL)/models"
 
     def run(self,inf_round): # thread의 갯수 만큼 실행됨
 
@@ -171,7 +175,7 @@ class Participant():
         self.model.train()
         sigmoid = torch.nn.Sigmoid()
 
-        logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.qualification_dataloader) * 32))
+        logging.info("The number of common dataset {} : {}".format(client_idx+1, len(self.backup_dataloader) * 32))
         
         batch_loss = []
         for batch_idx, (images, labels) in enumerate(self.backup_dataloader):
@@ -214,8 +218,10 @@ class Participant():
         sigmoid = torch.nn.Sigmoid()
         test_correct = 0.0
         test_sample_number = 0.0
-        # val_loader_examples_num = len(self.qualification_dataloader.dataset)
-        val_loader_examples_num = len(self.qualification_dataloader)
+        if self.args.task == 'classification':
+            val_loader_examples_num = len(self.qualification_dataloader.dataset)
+        elif self.args.task == 'segmentation':
+            val_loader_examples_num = len(self.qualification_dataloader)
 
         if self.args.task == 'classification':
             probs = np.zeros((val_loader_examples_num, self.num_classes), dtype = np.float32)
@@ -229,6 +235,7 @@ class Participant():
 
             for batch_idx, (x, target) in enumerate(self.qualification_dataloader):
 
+                
                 target = target.type(torch.LongTensor)
                 x = x.to(self.device)
                 target = target.to(self.device)
@@ -237,7 +244,7 @@ class Participant():
                 if self.args.task == 'classification':
                     if 'NIH' in self.dir or 'CheXpert' in self.dir:
                         probs[k: k + out.shape[0], :] = out.cpu()
-                        gt[   k: k + out.shape[0], :] = target.cpu()
+                        gt[   k: k + target.shape[0], :] = target.cpu()
                         k += out.shape[0] 
                         preds = np.round(sigmoid(out).cpu().detach().numpy())
                         targets = target.cpu().detach().numpy()
