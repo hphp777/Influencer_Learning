@@ -32,7 +32,7 @@ def add_args(parser):
     parser.add_argument('--task', type=str, default="classification",
                         help='classification, segmentation')
     
-    parser.add_argument('--method', type=str, default='fedavg', metavar='N',
+    parser.add_argument('--method', type=str, default='fedprox', metavar='N',
                         help='Options are: fedavg, fedprox, moon, fedalign, fedbalance')
     
     parser.add_argument('--data_dir', type=str, default="C:/Users/hb/Desktop/data/NIH",
@@ -68,7 +68,7 @@ def add_args(parser):
     parser.add_argument('--pretrained', action='store_true', default=False,  
                         help='test pretrained model')
 
-    parser.add_argument('--mu', type=float, default=1.0, metavar='MU',
+    parser.add_argument('--mu', type=float, default=0.001, metavar='MU',
                         help='mu value for various methods')
 
     parser.add_argument('--width', type=float, default=0.25, metavar='WI',
@@ -102,7 +102,7 @@ def add_args(parser):
     return args
 
 # Setup Functions
-def set_random_seed(seed=1996):
+def set_random_seed(seed=1):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -164,25 +164,25 @@ if __name__ == "__main__":
              class_num, client_pos_freq, client_neg_freq, client_imbalances = dl.load_partition_data(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size)
         print(client_imbalances)
     
-    if args.dynamic_db == True :
-        if args.task == "classification":
-            if args.dataset == "NIH":
-                if args.dynamic_db == False :
-                    train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic = args.dynamic_db)
-                    train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
-                    test_data_global = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
-                    class_num = 14
 
-                if args.dynamic_db == True :
-                    train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic = args.dynamic_db)
-                    train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
-                    test_data_global = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
-                    class_num = 14
-        if args.task == "segmentation":
-            train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic=args.dynamic_db)
-            train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
-            test_data_global = torch.utils.data.DataLoader(BraTS2021TestLoader(args.data_dir), batch_size = 32, shuffle = not True)
-            class_num = 5
+    if args.task == "classification":
+        if args.dataset == "NIH":
+            if args.dynamic_db == False :
+                train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic = args.dynamic_db)
+                train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
+                test_data_global = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
+                class_num = 14
+
+            elif args.dynamic_db == True :
+                train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic = args.dynamic_db)
+                train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
+                test_data_global = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
+                class_num = 14
+    elif args.task == "segmentation":
+        train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic=args.dynamic_db)
+        train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
+        test_data_global = torch.utils.data.DataLoader(BraTS2021TestLoader(args.data_dir), batch_size = 32, shuffle = not True)
+        class_num = 5
 
     # train_data_num = 50000
     # test_data_num = 312
@@ -209,11 +209,14 @@ if __name__ == "__main__":
     elif args.method=='fedprox':
         Server = fedprox.Server
         Client = fedprox.Client
-        Model = resnet56 
-        server_dict = {'train_data':train_data_global, 'test_data': test_data_global, 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir, 'harmony': args.harmony, 'imbalances': client_imbalances}
-        client_dict = [{'train_data':train_data_local_dict, 'test_data': test_data_local_dict, 'device': i % torch.cuda.device_count(),
-                            'client_map':mapping_dict[i], 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir, 'harmony': args.harmony,
-                            'clients_pos': client_pos_freq, 'clients_neg': client_neg_freq} for i in range(args.thread_number)]
+        if args.task == "classification":
+            Model = resnet56
+        elif args.task == "segmentation":
+             Model = UNet(1, class_num, bilinear=False) 
+
+        server_dict = {'train_data':train_data_local_dict, 'test_data': test_data_global, 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir}
+        client_dict = [{'train_data':train_data_local_dict, 'test_data': test_data_global, 'device': i % torch.cuda.device_count(),
+                            'client_map':mapping_dict[i], 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir} for i in range(args.thread_number)]
     elif args.method=='moon':
         Server = moon.Server
         Client = moon.Client
