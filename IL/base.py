@@ -78,7 +78,11 @@ class Participant():
             self.client_index = client_idx
             self.train(client_idx, inf_round)
             self.backup_train(client_idx)
-            self.qulification_scores[client_idx] = self.qulification(client_idx)
+
+            if self.args.task == "classification":
+                self.qulification_scores[client_idx], self.distill_logits[client_idx] = self.qulification(client_idx)
+            else:
+                self.qulification_scores[client_idx] = self.qulification(client_idx)        
             
             if self.args.client_sample < 1.0 and self.train_dataloader._iterator is not None:
                 self.train_dataloader._iterator._shutdown_workers()
@@ -110,7 +114,8 @@ class Participant():
                 self.qulification_scores[self.max_idx] = 0
                 self.second_max_idx = self.qulification_scores.index(max(self.qulification_scores))
                 # self.ensemble_influencing(self.max_idx, self.second_max_idx, self.args)
-
+        else:
+            self.influencing(self.max_idx,self.args)
         # elif self.args.task == "classification":
             
         #     self.influencing(self.max_idx,self.args)

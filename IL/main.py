@@ -71,13 +71,13 @@ def add_args(parser):
 
     parser.add_argument('--resume', help='weight decay parameter;', type=bool, default= False)
 
-    parser.add_argument('--epochs', type=int, default=5, metavar='EP',
+    parser.add_argument('--epochs', type=int, default=2, metavar='EP',
                         help='how many epochs will be trained locally per round')
     
     parser.add_argument('--influencing_epochs', type=int, default=1, metavar='EP',
                         help='how many epochs will be trained in the distillation(influencing) step')
 
-    parser.add_argument('--influencing_round', type=int, default=30,
+    parser.add_argument('--influencing_round', type=int, default=50,
                         help='how many rounds of communications are conducted')
 
     parser.add_argument('--pretrained', action='store_true', default=False,  
@@ -99,7 +99,7 @@ def add_args(parser):
     return args
 
 # Setup Functions
-def set_random_seed(seed=1996):
+def set_random_seed(seed=1):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
