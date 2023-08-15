@@ -182,7 +182,7 @@ class Participant():
         logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.qualification_dataloader) * 32))
         
         batch_loss = []
-        for epoch in range(2):
+        for epoch in range(self.args.backup_train_epochs):
             for batch_idx, (images, labels) in enumerate(tqdm(self.qualification_dataloader, desc = "Qualification Train {}/2: ".format(epoch+1))):
                 # logging.info(images.shape)
                 images, labels = images.to(self.device), labels.to(self.device)
@@ -232,7 +232,7 @@ class Participant():
         logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.backup_data) * 32))
         
         batch_loss = []
-        for epoch in range(2):
+        for epoch in range(self.args.backup_train_epochs):
             for batch_idx, (images, labels) in enumerate(tqdm(self.backup_data, desc = "Backup Train {}/2: ".format(epoch+1))):
                 # logging.info(images.shape)
                 images, labels = images.to(self.device), labels.to(self.device)
