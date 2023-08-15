@@ -21,12 +21,13 @@ import os
 from collections import defaultdict
 from data_preprocessing.datasets import NIHQualificationDataset, NIHTestDataset, NIHBackupDataset
 from data_preprocessing.datasets import BraTS2021QualificationLoader, BraTS2021TestLoader
+from data_preprocessing.datasets import CelebADataset
 import time
 
 # methods
 import node
 import data_preprocessing.custom_multiprocess as cm
-from data_preprocessing.data_loader import _data_transforms_NIH, load_dynamic_db, dynamic_partition_data
+from data_preprocessing.data_loader import _data_transforms_NIH, load_dynamic_db, dynamic_partition_data, _data_transforms_imagenet
 
 def add_args(parser):
     # Training settings
@@ -58,10 +59,10 @@ def add_args(parser):
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
 
-    parser.add_argument('--alpha', type=float, default= 0.99, metavar='a',
+    parser.add_argument('--alpha', type=float, default= 5.0, metavar='a',
                         help='distillation weight : 10.0, 5.0, 2.0, 0.99, 0.95, 0.5, 0.1, 0.05')
     
-    parser.add_argument('--temperature', type=float, default= 10.0, metavar='T',
+    parser.add_argument('--temperature', type=float, default= 3.0, metavar='T',
                         help='20.0, 10.0, 8.0, 6.0, 4.5, 3.0, 2.0, 1.5')
     
     parser.add_argument('--num_of_influencer', type=int, default=1, metavar='T',
@@ -71,13 +72,13 @@ def add_args(parser):
 
     parser.add_argument('--resume', help='weight decay parameter;', type=bool, default= False)
 
-    parser.add_argument('--epochs', type=int, default=2, metavar='EP',
+    parser.add_argument('--epochs', type=int, default=10, metavar='EP',
                         help='how many epochs will be trained locally per round')
     
     parser.add_argument('--influencing_epochs', type=int, default=1, metavar='EP',
                         help='how many epochs will be trained in the distillation(influencing) step')
 
-    parser.add_argument('--influencing_round', type=int, default=50,
+    parser.add_argument('--influencing_round', type=int, default=20,
                         help='how many rounds of communications are conducted')
 
     parser.add_argument('--pretrained', action='store_true', default=False,  
@@ -165,7 +166,7 @@ if __name__ == "__main__":
     if args.dataset == 'NIH':
         test_data = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
         qualification_data = torch.utils.data.DataLoader(NIHQualificationDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
-        backup_data = torch.utils.data.DataLoader(NIHBackupDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
+        backup_data = torch.utils.data.DataLoader(CelebADataset(_data_transforms_imagenet(),list(range(30000))), batch_size = 32, shuffle = not True)
         class_num = 14
     elif args.dataset == 'BraTS2021':
         test_data = torch.utils.data.DataLoader(BraTS2021TestLoader(args.data_dir), batch_size = 32, shuffle = not True)
@@ -189,7 +190,7 @@ if __name__ == "__main__":
     elif args.task == 'segmentation':
         Model = UNet(1, class_num, bilinear=False) 
 
-    client_dict = [{'train_data':train_data_local_dict, 'qulification_data': qualification_data,'backup_data' : backup_data, 'test_data' : test_data,'device': i % torch.cuda.device_count(),
+    client_dict = [{'train_data':train_data_local_dict, 'qulification_data': qualification_data,'backup_data': backup_data, 'test_data' : test_data,'device': i % torch.cuda.device_count(),
                         'client_map':mapping_dict[i], 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir} for i in range(args.thread_number)]
 
     client_info = Queue()

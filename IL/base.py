@@ -11,6 +11,7 @@ from torch.autograd import Variable
 from datetime import datetime
 from utils.metrics import dice_coeff, multiclass_dice_coeff, SegmentationMetrics, CriterionPixelWise
 import gc
+from tqdm import tqdm
 
 class Participant():
 
@@ -44,6 +45,7 @@ class Participant():
         self.client_index = None
         self.distill_logits = [0] * self.num_client
         self.qulification_scores = [0] * self.num_client
+        self.backup_logits = [0] * self.num_client
 
         now = datetime.now()
 
@@ -70,19 +72,15 @@ class Participant():
             self.train_dataloader = self.train_data[client_idx] # among dataloader, pick one
             self.test_dataloader = self.test_data
             self.qualification_dataloader = self.qualification_data
-            self.backup_dataloader = self.backup_data
             
             if self.args.client_sample < 1.0 and self.train_dataloader._iterator is not None and self.train_dataloader._iterator._shutdown:
                 self.train_dataloader._iterator = self.train_dataloader._get_iterator()
             
             self.client_index = client_idx
             self.train(client_idx, inf_round)
-            self.backup_train(client_idx)
-
-            if self.args.task == "classification":
-                self.qulification_scores[client_idx], self.distill_logits[client_idx] = self.qulification(client_idx)
-            else:
-                self.qulification_scores[client_idx] = self.qulification(client_idx)        
+            self.backup_logits[client_idx] = self.backup_train(client_idx)
+            self.qualification_train(client_idx)
+            self.qulification_scores[client_idx], self.distill_logits[client_idx] = self.qulification(client_idx)
             
             if self.args.client_sample < 1.0 and self.train_dataloader._iterator is not None:
                 self.train_dataloader._iterator._shutdown_workers()
@@ -93,7 +91,9 @@ class Participant():
         logging.info("Selected Influencer : paticipant {}".format(self.max_idx+1))
         
         # cascading influencing
-        if self.args.task == "segmentation":
+        if self.args.task == 'classification':
+            self.influencing(self.max_idx,self.args)
+        elif self.args.task == "segmentation":
             
             self.cascading_step = 1
             
@@ -114,8 +114,7 @@ class Participant():
                 self.qulification_scores[self.max_idx] = 0
                 self.second_max_idx = self.qulification_scores.index(max(self.qulification_scores))
                 # self.ensemble_influencing(self.max_idx, self.second_max_idx, self.args)
-        else:
-            self.influencing(self.max_idx,self.args)
+
         # elif self.args.task == "classification":
             
         #     self.influencing(self.max_idx,self.args)
@@ -173,47 +172,101 @@ class Participant():
         
         self.model_weights[client_idx] = self.model.cpu().state_dict()
 
-    def backup_train(self, client_idx):
+    def qualification_train(self, client_idx):
 
         self.model.load_state_dict(self.model_weights[client_idx])
         self.model.to(self.device)
         self.model.train()
         sigmoid = torch.nn.Sigmoid()
 
-        logging.info("The number of common dataset {} : {}".format(client_idx+1, len(self.backup_dataloader) * 32))
+        logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.qualification_dataloader) * 32))
         
         batch_loss = []
-        for batch_idx, (images, labels) in enumerate(self.backup_dataloader):
-            # logging.info(images.shape)
-            images, labels = images.to(self.device), labels.to(self.device)
-            # print(images.size())
-            self.optimizer.zero_grad()
+        for epoch in range(2):
+            for batch_idx, (images, labels) in enumerate(tqdm(self.qualification_dataloader, desc = "Qualification Train {}/2: ".format(epoch+1))):
+                # logging.info(images.shape)
+                images, labels = images.to(self.device), labels.to(self.device)
+                # print(images.size())
+                self.optimizer.zero_grad()
 
-            if self.args.task == 'classification':
-                if 'NIH' in self.dir or 'CheXpert' in self.dir:
-                    out = self.model(images)  
-                    loss = self.criterion(out, labels.type(torch.FloatTensor).to(self.device))
-                else:
-                    log_probs = self.model(images)
-                    loss = self.criterion(log_probs, labels.type(torch.LongTensor).to(self.device))
+                if self.args.task == 'classification':
+                    if 'NIH' in self.dir or 'CheXpert' in self.dir:
+                        out = self.model(images)  
+                        loss = self.criterion(out, labels.type(torch.FloatTensor).to(self.device))
+                    else:
+                        log_probs = self.model(images)
+                        loss = self.criterion(log_probs, labels.type(torch.LongTensor).to(self.device))
 
-            elif self.args.task == "segmentation":
-                masks_pred = self.model(images)
-                true_masks = labels.squeeze().type(torch.LongTensor)
-                # loss = self.criterion(F.softmax(masks_pred.to(self.device), dim=1).float(), true_masks.to(self.device)) 
+                elif self.args.task == "segmentation":
+                    masks_pred = self.model(images)
+                    true_masks = labels.squeeze().type(torch.LongTensor)
+                    # loss = self.criterion(F.softmax(masks_pred.to(self.device), dim=1).float(), true_masks.to(self.device)) 
+                    try:
+                        loss = self.criterion(masks_pred.to(self.device), true_masks.squeeze().to(self.device))
+                    except RuntimeError:
+                        continue
+                
                 try:
-                    loss = self.criterion(masks_pred.to(self.device), true_masks.squeeze().to(self.device))
+                    loss.backward()
+                    self.optimizer.step()
+                    batch_loss.append(loss.item())
                 except RuntimeError:
                     continue
-                
-            try:
-                loss.backward()
-                self.optimizer.step()
-                batch_loss.append(loss.item())
-            except RuntimeError:
-                continue
             
         self.model_weights[client_idx] = self.model.cpu().state_dict()
+
+    def backup_train(self, client_idx):
+
+        self.model.load_state_dict(self.model_weights[client_idx])
+        previous_fc = self.model.fc
+        self.model.fc = nn.Linear(64 * 4, 40)
+        self.model.to(self.device)
+        self.model.train()
+        backup_num = len(self.backup_data.dataset)
+        sigmoid = torch.nn.Sigmoid()
+
+        if self.args.task == 'classification':
+            probs = np.zeros((backup_num, 40), dtype = np.float32)
+            k=0
+
+        logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.backup_data) * 32))
+        
+        batch_loss = []
+        for epoch in range(2):
+            for batch_idx, (images, labels) in enumerate(tqdm(self.backup_data, desc = "Backup Train {}/2: ".format(epoch+1))):
+                # logging.info(images.shape)
+                images, labels = images.to(self.device), labels.to(self.device)
+                # print(images.size())
+                self.optimizer.zero_grad()
+
+                if self.args.task == 'classification':
+                    if 'NIH' in self.dir or 'CheXpert' in self.dir:
+                        out = self.model(images)  
+                        probs[k: k + out.shape[0], :] = out.cpu().detach().numpy()
+                        loss = self.criterion(out, labels.type(torch.FloatTensor).to(self.device))
+                    else:
+                        log_probs = self.model(images)
+                        loss = self.criterion(log_probs, labels.type(torch.LongTensor).to(self.device))
+
+                elif self.args.task == "segmentation":
+                    masks_pred = self.model(images)
+                    true_masks = labels.squeeze().type(torch.LongTensor)
+                    # loss = self.criterion(F.softmax(masks_pred.to(self.device), dim=1).float(), true_masks.to(self.device)) 
+                    try:
+                        loss = self.criterion(masks_pred.to(self.device), true_masks.squeeze().to(self.device))
+                    except RuntimeError:
+                        continue
+                    
+                try:
+                    loss.backward()
+                    self.optimizer.step()
+                    batch_loss.append(loss.item())
+                except RuntimeError:
+                    continue
+            
+        self.model.fc = previous_fc
+        self.model_weights[client_idx] = self.model.cpu().state_dict()
+        return probs
         
     def qulification(self, client_idx):
 
@@ -358,9 +411,12 @@ class Participant():
 
     def influencing (self, max_idx, args):
 
-        Loss = torch.nn.KLDivLoss(reduction='batchmean')  
+        Loss = torch.nn.KLDivLoss(reduction='sum')  
         Loss_segmentation = CriterionPixelWise()    
         logits_influencer = Variable(torch.Tensor(self.distill_logits[max_idx]).to(self.device), requires_grad=True)
+        mean_logits = torch.mean(Variable(torch.Tensor(self.distill_logits).to(self.device), requires_grad=True), dim=0)
+        backup_logits_influencer = Variable(torch.Tensor(self.backup_logits[max_idx]).to(self.device), requires_grad=True)
+        backup_logits_mean = torch.mean(Variable(torch.Tensor(self.backup_logits).to(self.device), requires_grad=True), dim=0)
         # logits_influencer = Variable(self.distill_logits[max_idx].to(self.device), requires_grad=True)
         alpha = args.alpha
         T = args.temperature
@@ -381,38 +437,61 @@ class Participant():
                 self.model.train()
 
                 logits_follower = Variable(torch.Tensor(self.distill_logits[client_idx]).to(self.device), requires_grad=True)
+                backup_logits_follower = Variable(torch.Tensor(self.backup_logits[client_idx]).to(self.device), requires_grad=True)
                 batch_loss = []
+                backup_batch_loss = []
 
                 # distillation
-                for i in range(len(logits_influencer)):
+                for i in tqdm(range(len(logits_influencer)), desc="Client {} influencing epoch {}".format(client_idx, e+1)):
 
                     if self.args.task == "classification":
                         follower = torch.clamp(sigmoid(logits_follower[i]), min=eps, max=1-eps)
                         influencer = torch.clamp(sigmoid(logits_influencer[i]), min=eps, max=1-eps)
-                        # print("Follower logits: ", follower)
-                        # print("Influencer logits: ", influencer)
                         KD_loss1 = Loss(torch.log(follower),influencer) * alpha
-                        # print("Loss1: ", KD_loss1)
                         KD_loss2 = Loss(torch.log(1 - follower), 1 - influencer) * alpha
-                        # print("Loss2: ", KD_loss2)
+                        
+                        mean_KD_loss1 = Loss(torch.log(follower),mean_logits) * alpha
+                        mean_KD_loss2 = Loss(torch.log(1 - follower), 1 - mean_logits) * alpha
+                        
                         KD_loss = KD_loss1 + KD_loss2
-                        # print("Loss: ", KD_loss)
+                        mean_KD_loss = mean_KD_loss1 + mean_KD_loss2
                         KD_loss = KD_loss.sum()
-                        # print("Sum: ", KD_loss)
+                        mean_KD_loss = mean_KD_loss.sum()
+                        KD_loss += mean_KD_loss
+                        
+
                     elif self.args.task == "segmentation":
                         KD_loss = Loss_segmentation.forward(logits_follower[i], logits_influencer[i])
                         # KD_loss = nn.KLDivLoss()(F.log_softmax(logits_follower[i]/T, dim=1),
                         #     F.softmax(logits_influencer[i]/T, dim=1)) * (10 * T * T)
-                    
-                    KD_loss.backward()
+                    KD_loss.backward()           
                     self.optimizer.step()
                     batch_loss.append(KD_loss.item())
+                    
+
+                for i in range(len(backup_logits_influencer)):
+                    if self.args.task == "classification":
+                        backup_follower = torch.clamp(sigmoid(backup_logits_follower[i]), min=eps, max=1-eps)
+                        backup_influencer = torch.clamp(sigmoid(backup_logits_influencer[i]), min=eps, max=1-eps)
+                        backup_KD_loss1 = Loss(torch.log(backup_follower),backup_influencer) * alpha
+                        backup_KD_loss2 = Loss(torch.log(1 - backup_follower), 1 - backup_influencer) * alpha
+                        backup_mean_KD_loss1 = Loss(torch.log(backup_follower),backup_logits_mean) * alpha
+                        backup_mean_KD_loss2 = Loss(torch.log(1 - backup_follower), 1 - backup_logits_mean) * alpha
+                        
+                        backup_KD_loss = (backup_KD_loss1 + backup_KD_loss2).sum()
+                        mean_backup_KD_loss = (backup_mean_KD_loss1 + backup_mean_KD_loss2).sum()
+                        backup_KD_loss += mean_backup_KD_loss
+                    
+                    backup_KD_loss.backward()
+                    self.optimizer.step()
+                    backup_batch_loss.append(backup_KD_loss.item())
 
                 if e == (args.influencing_epochs - 1):
                     if len(batch_loss) > 0:
 
                         avg_KD_loss = sum(batch_loss) / len(batch_loss)
-                        logging.info('Follower {}. distillation Loss: {:.6f}  Thread {}  Map {}'.format(client_idx+1, avg_KD_loss, current_process()._identity[0], self.client_map[self.round]))
+                        avg_backup_loss = sum(backup_batch_loss) / len(backup_batch_loss)
+                        logging.info('Follower {}. distillation Loss: {:.6f}, {:.6f}  Thread {}  Map {}'.format(client_idx+1, avg_KD_loss, avg_backup_loss, current_process()._identity[0], self.client_map[self.round]))
                 
                         m = self.model.cpu().state_dict()
                         self.model_weights[client_idx] = m

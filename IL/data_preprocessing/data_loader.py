@@ -133,19 +133,16 @@ def _data_transforms_cifar(datadir):
 
     return train_transform, valid_transform
 
-def _data_transforms_imagenet(datadir):
+def _data_transforms_imagenet():
     mean = [0.485, 0.456, 0.406]
     std = [0.229, 0.224, 0.225]
     crop_scale = 0.08
     jitter_param = 0.4
-    image_size = 224
-    image_resize = 256
+    image_size = 100
+    image_resize = 100
 
     train_transform = transforms.Compose([
-        transforms.RandomResizedCrop(image_size, scale=(crop_scale, 1.0)),
-        transforms.ColorJitter(
-            brightness=jitter_param, contrast=jitter_param,
-            saturation=jitter_param),
+        transforms.Resize(image_resize),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize(mean=mean, std=std),

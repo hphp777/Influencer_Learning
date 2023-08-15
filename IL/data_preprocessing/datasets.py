@@ -274,7 +274,7 @@ class NIHTrainDataset(Dataset):
         return merged_df
     
     def get_train_val_list(self):
-        f = open("C:/Users/hamdo/Desktop/data/NIH/train_list.txt", 'r')
+        f = open("C:/Users/hamdo/Desktop/data/NIH/train_Val_list.txt", 'r')
         train_val_list = str.split(f.read(), '\n')
         return train_val_list
 
@@ -533,6 +533,31 @@ class NIHBackupDataset(Dataset):
 
     def __len__(self):
         return len(self.test_df)
+
+class CelebADataset(Dataset):
+
+    def __init__(self, transform = None, indices = None):
+        
+        csv_path = "C:/Users/hamdo/Desktop/data/celebA/list_attr_celeba.csv"
+        self.dir = "C:/Users/hamdo/Desktop/data/celebA/img_align_celeba/img_align_celeba/"
+        self.transform = transform[0]
+
+        self.all_data = pd.read_csv(csv_path)
+        self.all_data = self.all_data.replace(to_replace=-1,value=0)
+        self.selecte_data = self.all_data.iloc[indices, :]
+        self.class_num = 40
+
+    def __getitem__(self, index):
+
+        row = self.selecte_data.iloc[index, :]
+        # img = cv2.imread(self.dir + row['Path'])
+        img = pilimg.open(self.dir + row['image_id'])
+        label = torch.FloatTensor(row[1:])
+        img = self.transform(img)
+        return img, label
+
+    def __len__(self):
+        return len(self.selecte_data)
 
 class ChexpertTrainDataset(Dataset):
 
