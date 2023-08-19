@@ -25,9 +25,9 @@ class Base_Client():
         self.client_index = None
         now = datetime.now()
 
-        self.result_dir = "C:/Users/hb/Desktop/code/Influencer_learning/FL/Results/{}_{}H_{}M".format(now.date(), str(now.hour), str(now.minute))
+        self.result_dir = os.getcwd() + "/FL/Results/{}_{}H_{}M".format(now.date(), str(now.hour), str(now.minute))
         os.mkdir(self.result_dir)
-        self.model_dir = "C:/Users/hb/Desktop/code/Influencer_learning/FL/Results/{}_{}H_{}M/models".format(now.date(), str(now.hour), str(now.minute))
+        self.model_dir = os.getcwd() + "/FL/Results/{}_{}H_{}M/models".format(now.date(), str(now.hour), str(now.minute))
         os.mkdir(self.model_dir)
         c = open(self.result_dir + "/config.txt", "w")
         c.write("learning_method: FL, dynamic_db: {}, comm_round: {}, local_epoch: {}".format(str(self.args.dynamic_db), str(self.args.comm_round), str(self.args.epochs)))

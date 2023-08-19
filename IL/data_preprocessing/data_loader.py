@@ -139,13 +139,13 @@ def _data_transforms_imagenet():
     crop_scale = 0.08
     jitter_param = 0.4
     image_size = 100
-    image_resize = 100
+    image_resize = 128
 
     train_transform = transforms.Compose([
         transforms.Resize(image_resize),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize(mean=mean, std=std),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
     ])
     valid_transform = transforms.Compose([
         transforms.Resize(image_resize),
@@ -451,7 +451,7 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
         if partition == "homo":
 
             if 'NIH' in datadir:
-                total_num = 50000
+                total_num = 69219
                 idxs = np.random.permutation(total_num)
                 overall_batch_idxs = np.array_split(idxs, n_nets)
             elif 'BraTS' in datadir:
@@ -474,7 +474,7 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
         if partition == "homo":
 
             if 'NIH' in datadir:
-                total_num = 50000
+                total_num = 69219
                 idxs = np.random.permutation(total_num)
                 overall_batch_idxs = np.array_split(idxs, n_nets)
             elif 'BraTS' in datadir:

@@ -12,6 +12,9 @@ from datetime import datetime
 from utils.metrics import dice_coeff, multiclass_dice_coeff, SegmentationMetrics, CriterionPixelWise
 import gc
 from tqdm import tqdm
+import warnings
+
+warnings.filterwarnings(action='ignore')
 
 class Participant():
 
@@ -65,7 +68,7 @@ class Participant():
     def run(self,inf_round): # thread의 갯수 만큼 실행됨
 
         # Step1 : local training
-        logging.info("Step 1. Local training **************************************************************")
+        print("Step 1. Local training **************************************************************")
         for client_idx in self.client_map[self.round]:
 
             # 한 tread에 할당된 client의 index가 매 round마다 들어있음.
@@ -86,9 +89,9 @@ class Participant():
                 self.train_dataloader._iterator._shutdown_workers()
 
         # Step2 : Influencing
-        logging.info("Step 2. Influencing *****************************************************************")
+        print("Step 2. Influencing *****************************************************************")
         self.max_idx = self.qulification_scores.index(max(self.qulification_scores))
-        logging.info("Selected Influencer : paticipant {}".format(self.max_idx+1))
+        print("Selected Influencer : paticipant {}".format(self.max_idx+1))
         
         # cascading influencing
         if self.args.task == 'classification':
@@ -99,7 +102,7 @@ class Participant():
             
             for s in range(self.cascading_step):
                 
-                logging.info("Step 2. Influencing step {} *****************************************************".format(s))
+                print("Step 2. Influencing step {} *****************************************************".format(s))
                 self.distill_logits = [0] * self.num_client
                 
                 for c in range(self.num_client):
@@ -124,7 +127,7 @@ class Participant():
         #         self.second_max_idx = self.qulification_scores.index(max(self.qulification_scores))
         #         self.influencing(self.second_max_idx,self.args)
 
-        logging.info("Step 3. Evaluation ******************************************************************")
+        print("Step 3. Evaluation ******************************************************************")
         for client_idx in range(self.num_client):
             self.test(client_idx)
 
@@ -138,7 +141,7 @@ class Participant():
         self.model.train()
         epoch_loss = []
 
-        logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.train_dataloader[inf_round]) * 32))
+        print("\nThe number of training data of participant {} : {}".format(client_idx+1, len(self.train_dataloader[inf_round]) * 32))
         
         for epoch in range(self.args.epochs):
             batch_loss = []
@@ -168,7 +171,7 @@ class Participant():
 
             if len(batch_loss) > 0:
                 epoch_loss.append(sum(batch_loss) / len(batch_loss))
-                logging.info('----participant {}. Local Training Epoch: {} \tLoss: {:.6f}  Thread {}  Map {}'.format(self.client_index+1, epoch+1, sum(epoch_loss) / len(epoch_loss), current_process()._identity[0], self.client_map[self.round]))
+                print('----participant {}. Local Training Epoch: {} \tLoss: {:.6f}  Thread {}  Map {}'.format(self.client_index+1, epoch+1, sum(epoch_loss) / len(epoch_loss), current_process()._identity[0], self.client_map[self.round]))
         
         self.model_weights[client_idx] = self.model.cpu().state_dict()
 
@@ -179,11 +182,11 @@ class Participant():
         self.model.train()
         sigmoid = torch.nn.Sigmoid()
 
-        logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.qualification_dataloader) * 32))
+        print("\nThe number of qualification data of participant {} : {}".format(client_idx+1, len(self.qualification_dataloader) * 32))
         
         batch_loss = []
         for epoch in range(self.args.backup_train_epochs):
-            for batch_idx, (images, labels) in enumerate(tqdm(self.qualification_dataloader, desc = "Qualification Train {}/2: ".format(epoch+1))):
+            for batch_idx, (images, labels) in enumerate(tqdm(self.qualification_dataloader, desc = "Qualification Train {}/{}: ".format(epoch+1, self.args.backup_train_epochs))):
                 # logging.info(images.shape)
                 images, labels = images.to(self.device), labels.to(self.device)
                 # print(images.size())
@@ -229,11 +232,11 @@ class Participant():
             probs = np.zeros((backup_num, 40), dtype = np.float32)
             k=0
 
-        logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.backup_data) * 32))
+        print("\nThe number of backup data of participant {} : {}".format(client_idx+1, len(self.backup_data) * 32))
         
         batch_loss = []
         for epoch in range(self.args.backup_train_epochs):
-            for batch_idx, (images, labels) in enumerate(tqdm(self.backup_data, desc = "Backup Train {}/2: ".format(epoch+1))):
+            for batch_idx, (images, labels) in enumerate(tqdm(self.backup_data, desc = "Backup Train {}/{}: ".format(epoch+1, self.args.backup_train_epochs))):
                 # logging.info(images.shape)
                 images, labels = images.to(self.device), labels.to(self.device)
                 # print(images.size())
@@ -242,6 +245,7 @@ class Participant():
                 if self.args.task == 'classification':
                     if 'NIH' in self.dir or 'CheXpert' in self.dir:
                         out = self.model(images)  
+                        # print(out)
                         probs[k: k + out.shape[0], :] = out.cpu().detach().numpy()
                         loss = self.criterion(out, labels.type(torch.FloatTensor).to(self.device))
                     else:
@@ -329,7 +333,7 @@ class Participant():
                         auc = roc_auc_score(gt, probs)
                     except:
                         auc = 0
-                    logging.info("* Qualification Score of participant {} : AUC = {:.2f}*".format(self.client_index+1, auc, acc))
+                    print("* Qualification Score of participant {} : AUC = {:.2f}*".format(self.client_index+1, auc, acc))
                     # return qualification score, logits
                     return auc, probs
                 else:
@@ -413,10 +417,11 @@ class Participant():
 
         Loss = torch.nn.KLDivLoss(reduction='sum')  
         Loss_segmentation = CriterionPixelWise()    
-        logits_influencer = Variable(torch.Tensor(self.distill_logits[max_idx]).to(self.device), requires_grad=True)
-        mean_logits = torch.mean(Variable(torch.Tensor(self.distill_logits).to(self.device), requires_grad=True), dim=0)
-        backup_logits_influencer = Variable(torch.Tensor(self.backup_logits[max_idx]).to(self.device), requires_grad=True)
-        backup_logits_mean = torch.mean(Variable(torch.Tensor(self.backup_logits).to(self.device), requires_grad=True), dim=0)
+        logits_influencer = Variable(torch.Tensor(np.array(self.distill_logits[max_idx])).to(self.device), requires_grad=True)
+        mean_logits = torch.mean(Variable(torch.Tensor(np.array(self.distill_logits)).to(self.device), requires_grad=True), dim=0)
+        backup_logits_influencer = Variable(torch.Tensor(np.array(self.backup_logits[max_idx])).to(self.device), requires_grad=True)
+        backup_logits_mean = torch.mean(Variable(torch.Tensor(np.array(self.backup_logits)).to(self.device), requires_grad=True), dim=0)
+        # print(backup_logits_influencer.sum(), backup_logits_mean.sum())
         # logits_influencer = Variable(self.distill_logits[max_idx].to(self.device), requires_grad=True)
         alpha = args.alpha
         T = args.temperature
@@ -436,27 +441,26 @@ class Participant():
                 self.model.to(self.device)
                 self.model.train()
 
-                logits_follower = Variable(torch.Tensor(self.distill_logits[client_idx]).to(self.device), requires_grad=True)
-                backup_logits_follower = Variable(torch.Tensor(self.backup_logits[client_idx]).to(self.device), requires_grad=True)
+                logits_follower = Variable(torch.Tensor(np.array(self.distill_logits[client_idx])).to(self.device), requires_grad=True)
+                backup_logits_follower = Variable(torch.Tensor(np.array(self.backup_logits[client_idx])).to(self.device), requires_grad=True)
                 batch_loss = []
                 backup_batch_loss = []
 
                 # distillation
-                for i in tqdm(range(len(logits_influencer)), desc="Client {} influencing epoch {}".format(client_idx, e+1)):
+                for i in tqdm(range(len(logits_influencer)), desc="Client {} influencing of qualification data epoch {}/{}".format(client_idx+1, e+1,args.influencing_epochs)):
 
                     if self.args.task == "classification":
                         follower = torch.clamp(sigmoid(logits_follower[i]), min=eps, max=1-eps)
                         influencer = torch.clamp(sigmoid(logits_influencer[i]), min=eps, max=1-eps)
+                        mean_logit = torch.clamp(sigmoid(mean_logits[i]), min=eps, max=1-eps)
                         KD_loss1 = Loss(torch.log(follower),influencer) * alpha
                         KD_loss2 = Loss(torch.log(1 - follower), 1 - influencer) * alpha
                         
-                        mean_KD_loss1 = Loss(torch.log(follower),mean_logits) * alpha
-                        mean_KD_loss2 = Loss(torch.log(1 - follower), 1 - mean_logits) * alpha
+                        mean_KD_loss1 = Loss(torch.log(follower), mean_logit) * alpha
+                        mean_KD_loss2 = Loss(torch.log(1 - follower), 1 - mean_logit) * alpha
                         
-                        KD_loss = KD_loss1 + KD_loss2
-                        mean_KD_loss = mean_KD_loss1 + mean_KD_loss2
-                        KD_loss = KD_loss.sum()
-                        mean_KD_loss = mean_KD_loss.sum()
+                        KD_loss = (KD_loss1 + KD_loss2).sum()
+                        mean_KD_loss = (mean_KD_loss1 + mean_KD_loss2).sum()
                         KD_loss += mean_KD_loss
                         
 
@@ -464,25 +468,29 @@ class Participant():
                         KD_loss = Loss_segmentation.forward(logits_follower[i], logits_influencer[i])
                         # KD_loss = nn.KLDivLoss()(F.log_softmax(logits_follower[i]/T, dim=1),
                         #     F.softmax(logits_influencer[i]/T, dim=1)) * (10 * T * T)
-                    KD_loss.backward()           
+                    KD_loss.backward(retain_graph=True)           
                     self.optimizer.step()
                     batch_loss.append(KD_loss.item())
                     
 
-                for i in range(len(backup_logits_influencer)):
+                for i in tqdm(range(len(backup_logits_influencer)), desc="Client {} influencing of backup data epoch {}/{}".format(client_idx+1, e+1,args.influencing_epochs)):
                     if self.args.task == "classification":
                         backup_follower = torch.clamp(sigmoid(backup_logits_follower[i]), min=eps, max=1-eps)
                         backup_influencer = torch.clamp(sigmoid(backup_logits_influencer[i]), min=eps, max=1-eps)
+                        backup_logit_mean = torch.clamp(sigmoid(backup_logits_mean[i]), min=eps, max=1-eps)
+
                         backup_KD_loss1 = Loss(torch.log(backup_follower),backup_influencer) * alpha
                         backup_KD_loss2 = Loss(torch.log(1 - backup_follower), 1 - backup_influencer) * alpha
-                        backup_mean_KD_loss1 = Loss(torch.log(backup_follower),backup_logits_mean) * alpha
-                        backup_mean_KD_loss2 = Loss(torch.log(1 - backup_follower), 1 - backup_logits_mean) * alpha
+
+                        backup_mean_KD_loss1 = Loss(torch.log(backup_follower),backup_logit_mean) * alpha
+                        backup_mean_KD_loss2 = Loss(torch.log(1 - backup_follower), 1 - backup_logit_mean) * alpha
                         
                         backup_KD_loss = (backup_KD_loss1 + backup_KD_loss2).sum()
                         mean_backup_KD_loss = (backup_mean_KD_loss1 + backup_mean_KD_loss2).sum()
+
                         backup_KD_loss += mean_backup_KD_loss
                     
-                    backup_KD_loss.backward()
+                    backup_KD_loss.backward(retain_graph=True)
                     self.optimizer.step()
                     backup_batch_loss.append(backup_KD_loss.item())
 
@@ -491,7 +499,7 @@ class Participant():
 
                         avg_KD_loss = sum(batch_loss) / len(batch_loss)
                         avg_backup_loss = sum(backup_batch_loss) / len(backup_batch_loss)
-                        logging.info('Follower {}. distillation Loss: {:.6f}, {:.6f}  Thread {}  Map {}'.format(client_idx+1, avg_KD_loss, avg_backup_loss, current_process()._identity[0], self.client_map[self.round]))
+                        print('Follower {}. distillation Loss: {:.6f}, {:.6f}  Thread {}  Map {}'.format(client_idx+1, avg_KD_loss, avg_backup_loss, current_process()._identity[0], self.client_map[self.round]))
                 
                         m = self.model.cpu().state_dict()
                         self.model_weights[client_idx] = m
@@ -630,7 +638,7 @@ class Participant():
                     except:
                         auc = 0
 
-                    logging.info("Participant {} test result: AUC = {:.2f}**************".format(client_idx+1, auc))
+                    print("Participant {} test result: AUC = {:.2f}**************".format(client_idx+1, auc))
                     f = open(self.result_dir + "/participants{}.txt".format(client_idx+1), "a")
                     f.write(str(auc) + "\n")
                     f.close()

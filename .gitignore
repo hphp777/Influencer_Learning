@@ -7,4 +7,6 @@ IL/data_preprocessing/__pycache__
 logs
 pickles
 IL/models/__pycache__
- IL/utils/__pycache__
+IL/utils/__pycache__
+FL/methods/__pycache__
+data/cifar10

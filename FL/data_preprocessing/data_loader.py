@@ -476,7 +476,6 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
 
     if dynamic == True :
         if partition == "homo":
-
             if 'NIH' in datadir:
                 total_num = 50000
                 idxs = np.random.permutation(total_num)
@@ -486,11 +485,12 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
                 overall_batch_idxs = []
                 for n in range(n_nets):
                     overall_batch_idxs.append(np.random.permutation(total_num)[:int(0.2*len(np.random.permutation(total_num)))])
+            elif 'cifar10' in datadir or 'cifar100' in datadir:
+                total_num = 40000
+                idxs = np.random.permutation(total_num)
+                overall_batch_idxs = np.array_split(idxs, n_nets)
             
-            idx_batch_temp = []
             final_idx_batch = []
-
-            # net_dataidx_map = {i: batch_idxs[i] for i in range(n_nets)}
             for i in range(n_nets): 
                 idx_batch = []
                 proportions = np.random.dirichlet(np.repeat(alpha, n_round))
@@ -756,27 +756,30 @@ def get_dataloader(datadir, train_bs, test_bs, dataidxs=None):
 
     return train_dl, test_dl
 
+def get_dynamic_cifar_dataloader(datadir, train_bs, dataidxs=None):
+
+    train_transform, test_transform = _data_transforms_cifar(datadir)
+    dl_obj = CIFAR_truncated
+    workers=0
+    persist=False
+
+    train_ds = dl_obj(datadir, dataidxs=dataidxs, train=True, transform=train_transform, download=True)
+    
+    train_dl = data.DataLoader(dataset=train_ds, batch_size=train_bs, shuffle=True, drop_last=True, num_workers=workers, persistent_workers=persist)
+
+    return train_dl
+
 def load_dynamic_db(data_dir, partition_method, partition_alpha, client_number, batch_size, n_round, indices):
 
-    # get local dataset
-    data_local_num_dict = dict() ### form 봐서 맞춰줘야 함
     train_data_local_dict = []
-    train_data_global = None
-    test_data_global = None
-    
-    if 'NIH' in data_dir:
-        class_num = 14
-        client_imbalances = []
-        client_pos_freq = []
-        client_neg_freq = []        
 
-        for i in range(len(indices)):
+    for i in range(len(indices)):
             lens = "Client {} data distribution : ".format(i+1)
             for j in range(len(indices[0])):
                 lens += str(len(indices[i][j])) + ", "
             print(lens)
-
-        # indices = distribute_indices(length, 1, client_number)
+    
+    if 'NIH' in data_dir:
         for i in range(client_number):
             train_data = []
             for r in range(n_round): 
@@ -794,12 +797,6 @@ def load_dynamic_db(data_dir, partition_method, partition_alpha, client_number, 
         return train_data_local_dict
     
     elif 'BraTS' in data_dir:
-        for i in range(len(indices)):
-            lens = "Client {} data distribution : ".format(i+1)
-            for j in range(len(indices[0])):
-                lens += str(len(indices[i][j])) + ", "
-            print(lens)
-
         for i in range(client_number):
             train_data = []
             for r in range(n_round): 
@@ -807,12 +804,17 @@ def load_dynamic_db(data_dir, partition_method, partition_alpha, client_number, 
                 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = True)
                 train_data.append(train_loader)
             train_data_local_dict.append(train_data)
-
-        for i in range(client_number):
-            lens = "Client {} trainloader data distribution : ".format(i+1)
-            for r in range(n_round): 
-                lens += str(len(train_data_local_dict[i][r])) + ", "
         return train_data_local_dict
+    
+    elif 'cifar10' in data_dir:
+        for i in range(client_number):
+            train_data = []
+        for r in range(n_round):
+            train_loader = get_dynamic_cifar_dataloader(data_dir, batch_size, dataidxs=indices[i][r])
+            train_data.append(train_loader)
+        train_data_local_dict.append(train_data)
+        _, test_data_global = get_dataloader(data_dir, batch_size, batch_size)
+        return train_data_local_dict, test_data_global
 
 def load_partition_data(data_dir, partition_method, partition_alpha, client_number, batch_size):
 
