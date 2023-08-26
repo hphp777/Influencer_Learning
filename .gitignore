@@ -12,3 +12,4 @@ FL/methods/__pycache__
 data/cifar10
 FL/models/__pycache__
 FL/utils/__pycache__
+data/

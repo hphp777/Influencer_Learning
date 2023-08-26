@@ -118,7 +118,7 @@ class Client(Base_Client):
             self.client_index = client_idx
             num_samples = len(self.train_dataloader)*self.args.batch_size
             weights = self.train(client_idx, com_round)
-            acc = self.test()
+            acc = self.test(client_idx)
             client_results.append({'weights':weights, 'num_samples':num_samples,'acc':acc, 'client_index':self.client_index})
             if self.args.client_sample < 1.0 and self.train_dataloader._iterator is not None:
                 self.train_dataloader._iterator._shutdown_workers()

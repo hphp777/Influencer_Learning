@@ -22,9 +22,10 @@ import methods.fedprox as fedprox
 import methods.moon as moon
 import methods.fedalign as fedalign
 import methods.fedbalance as fedbalance
+import methods.fedlc as fedlc
 import data_preprocessing.custom_multiprocess as cm
 from data_preprocessing.datasets import  BraTS2021TestLoader
-from data_preprocessing.data_loader import dynamic_partition_data, load_dynamic_db ,_data_transforms_NIH
+from data_preprocessing.data_loader import dynamic_partition_data, load_dynamic_db ,_data_transforms_NIH, get_dataloader
 from data_preprocessing.datasets import NIHTestDataset
 
 def add_args(parser):
@@ -32,7 +33,7 @@ def add_args(parser):
     parser.add_argument('--task', type=str, default="classification",
                         help='classification, segmentation')
     
-    parser.add_argument('--method', type=str, default='fedavg', metavar='N',
+    parser.add_argument('--method', type=str, default='fedlc', metavar='N',
                         help='Options are: fedavg, fedprox, moon, fedalign, fedbalance')
     
     parser.add_argument('--data_dir', type=str, default="data/cifar10",
@@ -45,7 +46,7 @@ def add_args(parser):
     parser.add_argument('--partition_method', type=str, default='homo', metavar='N',
                         help='how to partition the dataset on local clients')
 
-    parser.add_argument('--partition_alpha', type=float, default=0.5, metavar='PA',
+    parser.add_argument('--partition_alpha', type=float, default= 1.0, metavar='PA',
                         help='alpha value for Dirichlet distribution partitioning of data(default: 0.5)')
 
     parser.add_argument('--client_number', type=int, default=10, metavar='NN',
@@ -62,13 +63,13 @@ def add_args(parser):
     parser.add_argument('--epochs', type=int, default=10, metavar='EP',
                         help='how many epochs will be trained locally per round')
 
-    parser.add_argument('--comm_round', type=int, default=20,
+    parser.add_argument('--comm_round', type=int, default=40,
                         help='how many rounds of communications are conducted')
 
     parser.add_argument('--pretrained', action='store_true', default=False,  
                         help='test pretrained model')
 
-    parser.add_argument('--mu', type=float, default=0.001, metavar='MU',
+    parser.add_argument('--mu', type=float, default = 15, metavar='MU',
                         help='mu value for various methods')
 
     parser.add_argument('--width', type=float, default=0.25, metavar='WI',
@@ -86,7 +87,7 @@ def add_args(parser):
     parser.add_argument('--save_client', action='store_true', default=False,
                         help='Save client checkpoints each round')
 
-    parser.add_argument('--thread_number', type=int, default=5, metavar='NN',
+    parser.add_argument('--thread_number', type=int, default=1, metavar='NN',
                         help='number of parallel training threads')
 
     parser.add_argument('--client_sample', type=float, default=1.0, metavar='MT',
@@ -102,7 +103,7 @@ def add_args(parser):
     return args
 
 # Setup Functions
-def set_random_seed(seed=1):
+def set_random_seed(seed=16):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -164,16 +165,24 @@ if __name__ == "__main__":
              class_num, client_pos_freq, client_neg_freq, client_imbalances = dl.load_partition_data(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size)
         print(client_imbalances)
     
-    train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic = args.dynamic_db)
+    
     
     if args.task == "classification":
         if args.dataset == "NIH":
+            train_indices = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic = args.dynamic_db)
             train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
             test_data_global = torch.utils.data.DataLoader(NIHTestDataset(args.data_dir, transform = _data_transforms_NIH()), batch_size = 32, shuffle = not True)
             class_num = 14
         elif args.dataset == 'cifar10':
+            train_indices, class_cnt = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic = args.dynamic_db)
             train_data_local_dict, test_data_global = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
+            train_data_global, test_data_global = get_dataloader(args.data_dir, 32, 32)
             class_num = 10
+        elif args.dataset == 'cifar100':
+            train_indices, class_cnt = dynamic_partition_data(args.data_dir, args.partition_method, n_nets= args.client_number, alpha= args.partition_alpha, n_round = args.comm_round, dynamic = args.dynamic_db)
+            train_data_local_dict, test_data_global = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
+            train_data_global, test_data_global = get_dataloader(args.data_dir, 32, 32)
+            class_num = 100
     elif args.task == "segmentation":
         train_data_local_dict = load_dynamic_db(args.data_dir, args.partition_method, args.partition_alpha, args.client_number, args.batch_size, args.comm_round, train_indices)
         test_data_global = torch.utils.data.DataLoader(BraTS2021TestLoader(args.data_dir), batch_size = 32, shuffle = not True)
@@ -216,32 +225,29 @@ if __name__ == "__main__":
         Server = moon.Server
         Client = moon.Client
         Model = resnet56 
-        server_dict = {'train_data':train_data_global, 'test_data': test_data_global, 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir, 'harmony': args.harmony,'imbalances': client_imbalances}
-        client_dict = [{'train_data':train_data_local_dict, 'test_data': test_data_local_dict, 'device': i % torch.cuda.device_count(),
-                            'client_map':mapping_dict[i], 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir, 'harmony': args.harmony,
-                            'clients_pos': client_pos_freq, 'clients_neg': client_neg_freq} for i in range(args.thread_number)]
+        server_dict = {'train_data':train_data_local_dict, 'test_data': test_data_global, 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir}
+        client_dict = [{'train_data':train_data_local_dict, 'test_data': test_data_global, 'device': i % torch.cuda.device_count(),
+                            'client_map':mapping_dict[i], 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir} for i in range(args.thread_number)]
     elif args.method=='fedalign':
         Server = fedalign.Server
         Client = fedalign.Client
         Model = resnet56_fedalign 
         width_range = [args.width, 1.0]
         resolutions = [32] if 'cifar' in args.data_dir else [224]
-        server_dict = {'train_data':train_data_global, 'test_data': test_data_global, 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir, 'harmony': args.harmony,'imbalances': client_imbalances}
-        client_dict = [{'train_data':train_data_local_dict, 'test_data': test_data_local_dict, 'device': i % torch.cuda.device_count(),
+        server_dict = {'train_data':train_data_global, 'test_data': test_data_global, 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir}
+        client_dict = [{'train_data':train_data_local_dict,'train_data_global': train_data_global, 'test_data': test_data_global, 'device': i % torch.cuda.device_count(),
                             'client_map':mapping_dict[i], 'model_type': Model, 'num_classes': class_num, 
-                            'width_range': width_range, 'resolutions': resolutions, 'dir': args.data_dir, 'harmony': args.harmony,
-                            'clients_pos': client_pos_freq, 'clients_neg': client_neg_freq} for i in range(args.thread_number)]
-    elif args.method=='fedbalance':
-        Server = fedbalance.Server
-        Client = fedbalance.Client
+                            'width_range': width_range, 'resolutions': resolutions, 'dir': args.data_dir} for i in range(args.thread_number)]
+    elif args.method=='fedlc':
+        Server = fedlc.Server
+        Client = fedlc.Client
         Model = resnet56
         width_range = [args.width, 1.0]
         resolutions = [32] if 'cifar' in args.data_dir else [224]
-        server_dict = {'train_data':train_data_global, 'test_data': test_data_global, 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir, 'imbalances': client_imbalances}
-        client_dict = [{'train_data':train_data_local_dict, 'test_data': test_data_local_dict, 'device': i % torch.cuda.device_count(),
+        server_dict = {'train_data':train_data_local_dict, 'test_data': test_data_global, 'model_type': Model, 'num_classes': class_num, 'dir': args.data_dir}
+        client_dict = [{'train_data':train_data_local_dict, 'test_data': test_data_global, 'device': i % torch.cuda.device_count(),
                             'client_map':mapping_dict[i], 'model_type': Model, 'num_classes': class_num, 
-                            'width_range': width_range, 'resolutions': resolutions, 'dir': args.data_dir,
-                            'clients_pos': client_pos_freq, 'clients_neg': client_neg_freq} for i in range(args.thread_number)]
+                            'width_range': width_range, 'resolutions': resolutions, 'dir': args.data_dir, 'clients_cnt': class_cnt} for i in range(args.thread_number)]
     else:
         raise ValueError('Invalid --method chosen! Please choose from availible methods.')
     
@@ -274,15 +280,18 @@ if __name__ == "__main__":
         logging.info('***** Round: {} ************************'.format(r+1))
         iterables = []
         round_start = time.time()
-        # server output length :        
+        # server output length :     
+        # ingredients = []
+        # ingredients.append([server_outputs])
+        # ingredients.append([r])   
         # map 함수는 자체적으로 iteration 기능이 포함되어있어서 thread에 갯수만큼 server output을 하나씩 run_client에 넣어주면서 thread의 갯수만큼 실행됨
-        client_outputs = pool.starmap(run_clients, zip(server_outputs, [r])) # 함수 하나와 그 함수가 프로세스의 갯수만큼 실행되는동안 하나씩 들어갈 인수 리스트
-        # client_outputs = pool.map(lambda x: map(run_clients,x), [server_outputs, [r]])
+        # client_outputs = pool.starmap(run_clients, zip(server_outputs, [r])) # 함수 하나와 그 함수가 프로세스의 갯수만큼 실행되는동안 하나씩 들어갈 인수 리스트
+        client_outputs = pool.starmap(run_clients, zip(server_outputs, [r]))
         client_outputs = [c for sublist in client_outputs for c in sublist]  ##########자세히 client output form 확인 요망
         # sublist : 'weights': OrderedDict
         # length : the number of clients
         # c is the weight of a client   
-        server_outputs = server.run(client_outputs) # client_output에 imbalance를 집어 넣는 것도 좋을 듯
+        # server_outputs = server.run(client_outputs) # client_output에 imbalance를 집어 넣는 것도 좋을 듯
         round_end = time.time()
         total_sec = round_end-round_start
         total_min = (total_sec) // 60

@@ -88,55 +88,47 @@ class Client(Base_Client):
         self.prev_model = self.model_type(self.num_classes, KD=True, projection=True)
         # self.prev_model.load_state_dict(self.model.state_dict())
         self.global_model = self.model_type(self.num_classes, KD=True, projection=True)
-        self.harmony = client_dict['harmony']
-        self.client_pos_freq = client_dict['clients_pos']
-        self.client_neg_freq = client_dict['clients_neg']
         if 'NIH' in self.dir or 'ChexPert' in self.dir:
-            if self.harmony == 'n':
-                self.criterion1 = torch.nn.BCEWithLogitsLoss().to(self.device)
-            else:
-                self.criterion1 = PNB_loss(self.args.dataset, self.client_pos_freq, self.client_neg_freq)
+            self.criterion1 = torch.nn.BCEWithLogitsLoss().to(self.device)
             self.criterion2 = torch.nn.CrossEntropyLoss().to(self.device)
         else:
-            if self.harmony == 'n':
-                self.criterion1 = torch.nn.CrossEntropyLoss().to(self.device)
-            else:
-                self.criterion1 = PNB_loss(self.args.dataset, self.client_pos_freq, self.client_neg_freq)
+            self.criterion1 = torch.nn.CrossEntropyLoss().to(self.device)
             self.criterion2 = torch.nn.CrossEntropyLoss().to(self.device)
         self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.args.lr, momentum=0.9, weight_decay=self.args.wd, nesterov=True)
         self.cos = torch.nn.CosineSimilarity(dim=-1)
         self.temp = 0.5
 
-    def run(self, received_info):
+    def run(self, received_info, com_round):
         client_results = []
         self.global_model.load_state_dict(received_info['global'])
         for client_idx in self.client_map[self.round]:
             self.prev_model.load_state_dict(received_info['prev'][client_idx])
             self.load_client_state_dict(received_info['global'])
             self.train_dataloader = self.train_data[client_idx]
-            self.test_dataloader = self.test_data[client_idx]
+            self.test_dataloader = self.test_data
             if self.args.client_sample < 1.0 and self.train_dataloader._iterator is not None and self.train_dataloader._iterator._shutdown:
                 self.train_dataloader._iterator = self.train_dataloader._get_iterator()
             self.client_index = client_idx
             num_samples = len(self.train_dataloader)*self.args.batch_size
-            weights = self.train(client_idx)
-            acc = self.test()
+            weights = self.train(client_idx, com_round)
+            acc = self.test(client_idx)
             client_results.append({'weights':weights, 'num_samples':num_samples,'acc':acc, 'client_index':self.client_index})
             if self.args.client_sample < 1.0 and self.train_dataloader._iterator is not None:
                 self.train_dataloader._iterator._shutdown_workers()
         self.round += 1
         return client_results
 
-    def train(self, client_idx):
+    def train(self, client_idx, com_round):
         # train the local model
         self.model.to(self.device)
         self.global_model.to(self.device)
         self.prev_model.to(self.device)
         self.model.train()
         epoch_loss = []
+        logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.train_dataloader[com_round]) * 32))
         for epoch in range(self.args.epochs):
             batch_loss = []
-            for batch_idx, (x, target) in enumerate(self.train_dataloader):
+            for batch_idx, (x, target) in enumerate(self.train_dataloader[com_round]):
                 # logging.info(x.shape)
                 x= x.to(self.device)
                 self.optimizer.zero_grad()
@@ -155,16 +147,9 @@ class Client(Base_Client):
                 labels = torch.zeros(x.size(0)).to(self.device).long()
 
                 if 'NIH' in self.dir or 'CheXpert' in self.dir:
-                    if self.harmony == 'n':
-                        loss1 = self.criterion1(out, target.type(torch.FloatTensor).to(self.device))
-                    else:
-                        loss1 = self.criterion1(client_idx, out, target.type(torch.FloatTensor).to(self.device))
+                    loss1 = self.criterion1(out, target.type(torch.FloatTensor).to(self.device))
                 else:
-                    if self.harmony == 'n':
-                        loss1 = self.criterion1(out, target.type(torch.LongTensor).to(self.device))
-                    else:
-                        loss1 = self.criterion1(client_idx, torch.softmax(out, dim=1), target.type(torch.LongTensor).to(self.device))
-
+                    loss1 = self.criterion1(out, target.type(torch.LongTensor).to(self.device))
 
                 loss2 = self.args.mu * self.criterion2(logits, labels)
 
@@ -183,7 +168,7 @@ class Client(Base_Client):
         self.prev_model.load_state_dict(weights) ##
         return weights
 
-    def test(self):
+    def test(self, client_idx):
         self.model.to(self.device)
         self.model.eval()
         sigmoid = torch.nn.Sigmoid()
@@ -225,6 +210,9 @@ class Client(Base_Client):
                 return auc
             else:
                 logging.info("************* Client {} Acc = {:.2f} ***************************".format(self.client_index, acc))
+                f = open(self.result_dir + "/participants{}.txt".format(client_idx+1), "a")
+                f.write(str(acc) + "\n")
+                f.close()
                 return acc
 
 class Server(Base_Server):
@@ -232,23 +220,12 @@ class Server(Base_Server):
         super().__init__(server_dict, args)
         self.model = self.model_type(self.num_classes, KD=True, projection=True)
         self.prev_models = {x:self.model.cpu().state_dict() for x in range(self.args.client_number)}
-        self.harmony = server_dict['harmony']
-        self.imbalance_weights = server_dict['imbalances']
     
     def operations(self, client_info):
         client_info.sort(key=lambda tup: tup['client_index']) # 뒤죽박죽된 client_info를 client의 index 순으로 정렬 (1 ~)
         client_sd = [c['weights'] for c in client_info] # clients' number of weights
         ################################################################################################
-        if self.harmony == 'y':
-            gamma = 1
-            cw1 = self.imbalance_weights
-            cw2 = [c['num_samples']/sum([x['num_samples'] for x in client_info]) for c in client_info]
-            cw1 = np.array(cw1)
-            cw2 = np.array(cw2)
-            cw = gamma * cw1 + (1 - gamma) * cw2
-            print("Clients weight: ", cw)
-        else:
-            cw = [c['num_samples']/sum([x['num_samples'] for x in client_info]) for c in client_info]
+        cw = [c['num_samples']/sum([x['num_samples'] for x in client_info]) for c in client_info]
         ssd = self.model.state_dict()
         for key in ssd:
             ssd[key] = sum([sd[key]*cw[i] for i, sd in enumerate(client_sd)])

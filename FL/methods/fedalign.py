@@ -28,19 +28,20 @@ class Client(Base_Client):
         self.width_range = client_dict['width_range']
         self.resolutions = client_dict['resolutions']
         self.num_sub = args.num_subnets-1
+        self.global_train_data = client_dict['train_data_global']
 
-    def train(self):
+    def train(self, client_idx, com_round):
         # train the local model
         self.model.to(self.device)
         self.model.train()
         epoch_loss = []
+        logging.info("The number of data of participant {} : {}".format(client_idx+1, len(self.train_dataloader[com_round]) * 32))
         for epoch in range(self.args.epochs):
             batch_loss = []
-            for batch_idx, (images, labels) in enumerate(self.train_dataloader):
+            for batch_idx, (images, labels) in enumerate(self.train_dataloader[com_round]):
                 labels = labels.type(torch.LongTensor)
                 images, labels = images.to(self.device, non_blocking=True), labels.to(self.device, non_blocking=True)
-                self.optimizer.zero_grad()
-               
+                self.optimizer.zero_grad()     
                 self.model.apply(lambda m: setattr(m, 'width_mult', self.width_range[-1]))
                 t_feats, t_out = self.model.extract_feature(images)
 
@@ -91,7 +92,7 @@ class Client(Base_Client):
         top_eigenvalue = torch.sqrt(n / torch.norm(v, dim=1).unsqueeze(1))
         return top_eigenvalue
 
-    def test(self):
+    def test(self, client_idx):
         self.model.to(self.device)
         self.model.eval()
         test_correct = 0.0
@@ -104,7 +105,7 @@ class Client(Base_Client):
         with torch.no_grad():
             ###
             self.model.apply(lambda m: setattr(m, 'width_mult', self.width_range[-1]))
-            self.model = pbn.ComputeBN(self.model, self.train_dataloader, self.resolutions[0], self.device)
+            self.model = pbn.ComputeBN(self.model, self.global_train_data, self.resolutions[0], self.device)
             ###
             for batch_idx, (x, target) in enumerate(self.test_dataloader):
                 target = target.type(torch.LongTensor)
@@ -134,9 +135,15 @@ class Client(Base_Client):
                 except:
                     auc = 0
                 logging.info("************* Client {} AUC = {:.2f},  Acc = {:.2f}**************".format(self.client_index, auc, acc))
+                f = open(self.result_dir + "/participants{}.txt".format(client_idx+1), "a")
+                f.write(str(auc) + "\n")
+                f.close()
                 return auc
             else:
                 logging.info("************* Client {} Acc = {:.2f} **************".format(self.client_index, acc))
+                f = open(self.result_dir + "/participants{}.txt".format(client_idx+1), "a")
+                f.write(str(acc) + "\n")
+                f.close()
                 return acc
 
 class Server(Base_Server):

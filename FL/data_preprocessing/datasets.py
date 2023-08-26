@@ -55,7 +55,7 @@ class CIFAR_truncated(data.Dataset):
         self.data, self.target = self.__build_truncated_dataset__()
 
     def __build_truncated_dataset__(self):
-        print("download = " + str(self.download))
+        # print("download = " + str(self.download))
         if "cifar100" in self.root:
             cifar_dataobj = CIFAR100(self.root, self.train, self.transform, self.target_transform, self.download)
         else:
@@ -610,8 +610,7 @@ class BraTS2021TrainLoader(Dataset): # custom dataset
         images, masks= self.BraTS2021loader(self.indices[index])
 
         return images, masks
-    
-    
+       
 class BraTS2021TestLoader(Dataset): # custom dataset
 
     def BraTS2021loader(self, index): # index = number

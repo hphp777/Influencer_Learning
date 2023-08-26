@@ -9,6 +9,11 @@ from datetime import datetime
 import torch.nn.functional as F
 from utils.metrics import multiclass_dice_coeff, SegmentationMetrics
 
+now = datetime.now()
+result_dir = os.getcwd() + "/FL/Results/{}_{}H".format(now.date(), str(now.hour))
+model_dir = os.getcwd() + "/FL/Results/{}_{}H/models".format(now.date(), str(now.hour))
+
+
 class Base_Client():
     def __init__(self, client_dict, args):
         self.train_data = client_dict['train_data'] # dataloader(with all clients)
@@ -23,14 +28,12 @@ class Base_Client():
         self.train_dataloader = None
         self.test_dataloader = None
         self.client_index = None
-        now = datetime.now()
+       
+        self.result_dir = result_dir
+        self.model_dir = model_dir
 
-        self.result_dir = os.getcwd() + "/FL/Results/{}_{}H_{}M".format(now.date(), str(now.hour), str(now.minute))
-        os.mkdir(self.result_dir)
-        self.model_dir = os.getcwd() + "/FL/Results/{}_{}H_{}M/models".format(now.date(), str(now.hour), str(now.minute))
-        os.mkdir(self.model_dir)
         c = open(self.result_dir + "/config.txt", "w")
-        c.write("learning_method: FL, dynamic_db: {}, comm_round: {}, local_epoch: {}".format(str(self.args.dynamic_db), str(self.args.comm_round), str(self.args.epochs)))
+        c.write("learning_method: {}, dataset: {}, dynamic_db: {}, comm_round: {}, local_epoch: {}".format(self.args.method,self.args.dataset, str(self.args.dynamic_db), str(self.args.comm_round), str(self.args.epochs)))
     
     def load_client_state_dict(self, server_state_dict):
         # If you want to customize how to state dict is loaded you can do so here
@@ -39,10 +42,13 @@ class Base_Client():
     def run(self, received_info, com_round): # thread의 갯수 만큼 실행됨
         # recieved info : a server model weights(OrderedDict)
         # one globally merged model's parameter
+       
         client_results = []
+        print(self.client_map)
         for client_idx in self.client_map[self.round]: # round is the index of communication round
+            print("client idx: ", client_idx)
             # 한 tread에 할당된 client의 index가 매 round마다 들어있음.
-            self.load_client_state_dict(received_info) 
+            # self.load_client_state_dict(received_info) 
             self.train_dataloader = self.train_data[client_idx] # among dataloader, pick one
             # 이 때 self.train_dataloader의 형태는 1차원 배열이어야 한다.
             self.test_dataloader = self.test_data
@@ -192,6 +198,9 @@ class Base_Client():
                     return auc
                 else:
                     logging.info("************* Client {} Acc = {:.2f} **************".format(self.client_index, acc))
+                    f = open(self.result_dir + "/participants{}.txt".format(client_idx+1), "a")
+                    f.write(str(acc) + "\n")
+                    f.close()
                     return acc
             elif self.args.task == "segmentation":
                 dice_score /= len(self.test_dataloader)
@@ -219,6 +228,10 @@ class Base_Server():
         self.round = 0
         self.args = args
         self.save_path = server_dict['save_path']
+
+
+        os.mkdir(result_dir)
+        os.mkdir(model_dir)
 
     def run(self, received_info):
         server_outputs = self.operations(received_info)

@@ -487,8 +487,9 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
                     overall_batch_idxs.append(np.random.permutation(total_num)[:int(0.2*len(np.random.permutation(total_num)))])
             elif 'cifar10' in datadir or 'cifar100' in datadir:
                 total_num = 40000
+                y_train, y_test = load_data(datadir)
                 idxs = np.random.permutation(total_num)
-                overall_batch_idxs = np.array_split(idxs, n_nets)
+                overall_batch_idxs = np.array_split(idxs, n_nets)                     
             
             final_idx_batch = []
             for i in range(n_nets): 
@@ -506,7 +507,23 @@ def dynamic_partition_data(datadir, partition, n_nets, alpha, n_round, dynamic =
                     idx_batch.append(items)
 
                 final_idx_batch.append(idx_batch)
-                
+
+            if 'cifar10' in datadir or 'cifar100' in datadir:
+                overall_class_cnt = []
+                for i in range(n_nets):
+                    client_class_cnt = []
+                    for j in range(n_round):
+                        if 'cifar100' in datadir:
+                            class_cnt = [0] * 100
+                        elif 'cifar10' in datadir:
+                            class_cnt = [0] * 10
+                        for idx in range(len(final_idx_batch[i][j])):
+                            class_cnt[y_train[final_idx_batch[i][j][idx]]] += 1
+                        client_class_cnt.append(class_cnt)
+                    overall_class_cnt.append(client_class_cnt)
+                print(overall_class_cnt)
+                return final_idx_batch, overall_class_cnt
+
             return final_idx_batch
 
     elif partition == "hetero":
@@ -809,10 +826,10 @@ def load_dynamic_db(data_dir, partition_method, partition_alpha, client_number, 
     elif 'cifar10' in data_dir:
         for i in range(client_number):
             train_data = []
-        for r in range(n_round):
-            train_loader = get_dynamic_cifar_dataloader(data_dir, batch_size, dataidxs=indices[i][r])
-            train_data.append(train_loader)
-        train_data_local_dict.append(train_data)
+            for r in range(n_round):
+                train_loader = get_dynamic_cifar_dataloader(data_dir, batch_size, dataidxs=indices[i][r])
+                train_data.append(train_loader)
+            train_data_local_dict.append(train_data)
         _, test_data_global = get_dataloader(data_dir, batch_size, batch_size)
         return train_data_local_dict, test_data_global
 
